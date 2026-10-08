@@ -89,6 +89,15 @@ export default class OauthController {
     // non-IAM users appear as employees).
     const role = toIdentityRoleStrict(userinfo.role)
     if (!role || !userinfo.sub) {
+      ctx.logger.warn(
+        {
+          reason: !userinfo.sub ? 'missing_sub' : 'missing_role',
+          hasSub: Boolean(userinfo.sub),
+          roleType: typeof userinfo.role,
+          rolePresent: userinfo.role !== undefined && userinfo.role !== null,
+        },
+        'IAM OAuth callback denied: missing identity claims'
+      )
       response.status(403)
       return inertia.render('errors/forbidden', {
         message: 'Your IAM account is missing required identity claims.',
@@ -96,6 +105,10 @@ export default class OauthController {
     }
     const appAccess = Array.isArray(userinfo.app_access) ? userinfo.app_access : []
     if (!appAccess.includes('Portfolio')) {
+      ctx.logger.warn(
+        { reason: 'missing_portfolio_access', appAccessLength: appAccess.length },
+        'IAM OAuth callback denied: no Portfolio access'
+      )
       response.status(403)
       return inertia.render('errors/forbidden', {
         message: 'Your account does not have access to Portfolio.',
@@ -111,6 +124,10 @@ export default class OauthController {
       // deny instead of merging (prevents account takeover / resurrection
       // of a deleted IAM user that reuses an email).
       if (user.iamSub && user.iamSub !== userinfo.sub) {
+        ctx.logger.warn(
+          { reason: 'iam_sub_mismatch' },
+          'IAM OAuth callback denied: email linked to a different Covet ID'
+        )
         response.status(403)
         return inertia.render('errors/forbidden', {
           message: 'This email is already linked to a different Covet ID.',

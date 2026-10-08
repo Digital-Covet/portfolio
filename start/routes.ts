@@ -29,11 +29,14 @@ router
     router.get('login', [controllers.Session, 'create'])
 
     router.get('auth/iam', [OauthController, 'redirect']).as('oauth.redirect')
-    router
-      .get('api/auth/oauth2/callback/portfolio', [OauthController, 'callback'])
-      .as('oauth.callback')
   })
   .use(middleware.guest())
+
+// The callback must stay reachable when a Portfolio session already exists
+// (re-login / account switch). It validates the one-time `state` + PKCE
+// cookies itself, so guest middleware must not bounce it to `/` before it
+// can exchange the code.
+router.get('api/auth/oauth2/callback/portfolio', [OauthController, 'callback']).as('oauth.callback')
 
 router
   .group(() => {
