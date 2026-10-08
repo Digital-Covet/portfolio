@@ -6,7 +6,11 @@ const dbConfig = defineConfig({
   /**
    * Default connection used for all queries.
    * Supabase Postgres is primary; sqlite remains for local fallback and
-   * for the test suite (Supabase is managed externally — never migrate it).
+   * for the test suite. Supabase tables are managed externally — do not
+   * run migrations against it by default. Sanctioned exception:
+   * `1761885935171_drop_iam_authz_columns_from_users` (IAM-only authz
+   * cleanup) is meant to run against Supabase Postgres via DIRECT_URL:
+   *   DATABASE_URL="<DIRECT_URL>" node ace migration:run
    */
   connection: app.inTest ? 'sqlite' : 'postgres',
 

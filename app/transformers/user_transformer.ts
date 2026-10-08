@@ -12,8 +12,6 @@ export default class UserTransformer extends BaseTransformer<User> {
         'updatedAt',
         'initials',
       ]),
-      role: this.resource.role,
-      appAccess: this.resource.appAccessList,
       avatarUrl: this.resource.avatarUrl,
     }
   }

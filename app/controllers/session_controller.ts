@@ -1,8 +1,4 @@
-import { Effect } from 'effect'
-import { InvalidCredentials } from '#errors/auth'
-import { runRequestEffect } from '#effect/runtime'
-import { AuthService } from '#services/auth_service'
-import { loginValidator } from '#validators/user'
+import { clearIamSession } from '#services/portfolio_auth'
 import type { HttpContext } from '@adonisjs/core/http'
 
 export default class SessionController {
@@ -10,35 +6,14 @@ export default class SessionController {
     return inertia.render('auth/login', {})
   }
 
-  async store(ctx: HttpContext) {
-    const { request, auth, response, session } = ctx
-    const { email, password } = await request.validateUsing(loginValidator)
-
-    let user
-    try {
-      user = await runRequestEffect(
-        ctx,
-        Effect.gen(function* () {
-          const authService = yield* AuthService
-          return yield* authService.verifyLogin(email, password)
-        })
-      )
-    } catch (error) {
-      if (error instanceof InvalidCredentials) {
-        session.flash('errors', {
-          email: 'Invalid email or password',
-          password: 'Invalid email or password',
-        })
-        return response.redirect().back()
-      }
-      throw error
-    }
-
-    await auth.use('web').login(user)
-    return response.redirect().toRoute('dashboard')
+  async store({ response }: HttpContext) {
+    // IAM-only sign-in. Local password login is disabled: it bypassed IAM
+    // and minted employee-role sessions for users not in IAM.
+    return response.redirect().toRoute('oauth.redirect')
   }
 
-  async destroy({ auth, response }: HttpContext) {
+  async destroy({ auth, response, session }: HttpContext) {
+    clearIamSession({ session, auth } as HttpContext)
     await auth.use('web').logout()
     return response.redirect().toRoute('session.create')
   }

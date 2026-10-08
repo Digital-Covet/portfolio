@@ -87,10 +87,19 @@ export class ServiceSchema extends BaseModel {
 }
 
 export class UserSchema extends BaseModel {
-  static $columns = ['appAccess', 'avatarUrl', 'createdAt', 'departmentId', 'email', 'emailVerified', 'fullName', 'iamSub', 'id', 'password', 'role', 'updatedAt'] as const
+  static $columns = [
+    'avatarUrl',
+    'createdAt',
+    'departmentId',
+    'email',
+    'emailVerified',
+    'fullName',
+    'iamSub',
+    'id',
+    'password',
+    'updatedAt',
+  ] as const
   $columns = UserSchema.$columns
-  @column()
-  declare appAccess: string | null
   @column()
   declare avatarUrl: string | null
   @column.dateTime({ autoCreate: true })
@@ -109,8 +118,6 @@ export class UserSchema extends BaseModel {
   declare id: number
   @column({ serializeAs: null })
   declare password: string | null
-  @column()
-  declare role: string
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime | null
 }

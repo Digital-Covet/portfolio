@@ -91,15 +91,27 @@ export async function fetchUserInfo(accessToken: string): Promise<IamUserInfo> {
   return (await response.json()) as IamUserInfo
 }
 
-const IDENTITY_ROLES = new Set(['employee', 'admin', 'superadmin'])
+// Single source of truth for identity roles lives in
+// `#services/portfolio_auth` (fail-closed, no `employee` fallback).
+// Re-exported here so OAuth call sites import from one place.
+export {
+  IDENTITY_ROLES,
+  isIdentityRole,
+  toIdentityRoleStrict,
+  type IdentityRole,
+} from '#services/portfolio_auth'
 
-export function toIdentityRole(value: unknown): 'employee' | 'admin' | 'superadmin' {
-  return typeof value === 'string' && IDENTITY_ROLES.has(value)
-    ? (value as 'employee' | 'admin' | 'superadmin')
-    : 'employee'
+function appAccessList(userinfo: IamUserInfo): string[] {
+  return Array.isArray(userinfo.app_access) ? userinfo.app_access : []
 }
 
 export function hasPortfolioAccess(userinfo: IamUserInfo): boolean {
-  if (userinfo.role === 'superadmin' || userinfo.role === 'admin') return true
-  return Array.isArray(userinfo.app_access) && userinfo.app_access.includes('Portfolio')
+  // IAM expands admin/superadmin to ALL_APPS in `app_access`, so the
+  // claim alone is sufficient. Do NOT bypass on `role` — a forged or
+  // stale role must never grant access without the Portfolio claim.
+  // Verified against IAM `effectiveAppAccess()` (iam-digitalcovet
+  // src/lib/app-access.ts): elevated roles receive
+  // ["Share","Portfolio","Desk"], so this fail-closed check does not
+  // lock out admins as long as that expansion stays in place.
+  return appAccessList(userinfo).includes('Portfolio')
 }

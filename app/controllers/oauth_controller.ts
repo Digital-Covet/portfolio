@@ -6,9 +6,8 @@ import {
   createState,
   exchangeCodeForTokens,
   fetchUserInfo,
-  hasPortfolioAccess,
-  toIdentityRole,
 } from '#services/iam_oauth_service'
+import { storeIamSession, clearIamSession, toIdentityRoleStrict } from '#services/portfolio_auth'
 import env from '#start/env'
 import type { HttpContext } from '@adonisjs/core/http'
 
@@ -85,26 +84,42 @@ export default class OauthController {
       return response.redirect().toRoute('session.create')
     }
 
-    if (!hasPortfolioAccess(userinfo)) {
+    // IAM is the sole authority for authorization. A missing/unknown role
+    // must deny — never fall back to 'employee' (that fallback is what let
+    // non-IAM users appear as employees).
+    const role = toIdentityRoleStrict(userinfo.role)
+    if (!role || !userinfo.sub) {
+      response.status(403)
+      return inertia.render('errors/forbidden', {
+        message: 'Your IAM account is missing required identity claims.',
+      })
+    }
+    const appAccess = Array.isArray(userinfo.app_access) ? userinfo.app_access : []
+    if (!appAccess.includes('Portfolio')) {
       response.status(403)
       return inertia.render('errors/forbidden', {
         message: 'Your account does not have access to Portfolio.',
       })
     }
 
-    const role = toIdentityRole(userinfo.role)
-    const appAccess = Array.isArray(userinfo.app_access) ? userinfo.app_access : []
-
     let user =
       (await User.findBy('iamSub', userinfo.sub)) ?? (await User.findBy('email', userinfo.email))
 
     if (user) {
+      // Identity link must be stable: never adopt a different iamSub via a
+      // mere email match. If the email row belongs to another identity,
+      // deny instead of merging (prevents account takeover / resurrection
+      // of a deleted IAM user that reuses an email).
+      if (user.iamSub && user.iamSub !== userinfo.sub) {
+        response.status(403)
+        return inertia.render('errors/forbidden', {
+          message: 'This email is already linked to a different Covet ID.',
+        })
+      }
       user.merge({
         iamSub: userinfo.sub,
         email: userinfo.email,
         fullName: userinfo.name ?? user.fullName,
-        role,
-        appAccess: JSON.stringify(appAccess),
         avatarUrl: userinfo.picture ?? user.avatarUrl,
         emailVerified: userinfo.email_verified === true,
         departmentId: userinfo.department_id ?? user.departmentId,
@@ -116,19 +131,18 @@ export default class OauthController {
         email: userinfo.email,
         fullName: userinfo.name ?? userinfo.email.split('@')[0],
         password: null,
-        role,
-        appAccess: JSON.stringify(appAccess),
         avatarUrl: userinfo.picture ?? null,
         emailVerified: userinfo.email_verified === true,
         departmentId: userinfo.department_id ?? null,
       })
     }
 
+    storeIamSession({ session }, role, appAccess)
     await auth.use('web').login(user)
     return response.redirect().toRoute('dashboard')
   }
 
-  async frontChannelLogout({ request, response, auth }: HttpContext) {
+  async frontChannelLogout({ request, response, auth, session }: HttpContext) {
     const logoutToken = request.input('logout_token')
     const rawSecret = env.get('FRONT_CHANNEL_LOGOUT_SECRET')
     const secret = typeof rawSecret === 'string' ? rawSecret : rawSecret?.release()
@@ -147,8 +161,10 @@ export default class OauthController {
             const claims = decodeLogoutTokenPayload(logoutToken)
             const sid = typeof claims?.sid === 'string' ? claims.sid : undefined
             if (sid) {
+              clearIamSession({ session, auth } as HttpContext)
               await auth.use('web').logout()
             } else {
+              clearIamSession({ session, auth } as HttpContext)
               await auth.use('web').logout()
             }
             return response.ok({ received: true })
@@ -160,6 +176,7 @@ export default class OauthController {
     }
 
     // No (valid) token: still end local session so single logout always works.
+    clearIamSession({ session, auth } as HttpContext)
     await auth.use('web').logout()
     return response.redirect().toRoute('session.create')
   }

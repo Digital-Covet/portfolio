@@ -8,9 +8,7 @@ import WorkCategory from '#models/work_category'
 import ServiceItem from '#models/service_item'
 import BusinessModel from '#models/business_model'
 import { taxonomyCreateValidator, taxonomyRenameValidator } from '#validators/taxonomy'
-
-const RANK = { employee: 0, admin: 1, superadmin: 2 } as const
-type Role = keyof typeof RANK
+import { isAdminSession } from '#services/portfolio_auth'
 
 const TABS = ['hierarchy', 'categories', 'services', 'models'] as const
 type Tab = (typeof TABS)[number]
@@ -25,13 +23,12 @@ const TYPES = [
 ] as const
 type TaxonomyType = (typeof TYPES)[number]
 
-function canEdit(role: unknown): boolean {
-  return (RANK[role as Role] ?? 0) >= RANK.admin
+function canEdit(ctx: Pick<import('@adonisjs/core/http').HttpContext, 'session'>): boolean {
+  return isAdminSession(ctx)
 }
 
-async function assertEditable(auth: HttpContext['auth']) {
-  const role = (auth.user as unknown as { role?: unknown } | null)?.role
-  if (!canEdit(role)) {
+async function assertEditable(ctx: Pick<import('@adonisjs/core/http').HttpContext, 'session'>) {
+  if (!canEdit(ctx)) {
     const error = new Error('Only admins can edit taxonomies') as Error & {
       status?: number
     }
@@ -57,7 +54,7 @@ function slugFor(name: string): string {
  * the UI is derived from the name so the existing React contract keeps working.
  */
 export default class TaxonomiesController {
-  async index({ auth, inertia, request }: HttpContext) {
+  async index({ session, inertia, request }: HttpContext) {
     const rawTab = String(request.input('tab', 'hierarchy') ?? 'hierarchy')
     const tab: Tab = (TABS as readonly string[]).includes(rawTab) ? (rawTab as Tab) : 'hierarchy'
 
@@ -127,11 +124,9 @@ export default class TaxonomiesController {
     const svcCount = toMap(svcCounts)
     const modelCount = toMap(modelCounts)
 
-    const role = (auth.user as unknown as { role?: unknown } | null)?.role
-
     return inertia.render('taxonomies', {
       tab,
-      canEdit: canEdit(role),
+      canEdit: canEdit({ session }),
       selectedSectorId: validSector,
       selectedIndustryId: validIndustry,
       sectors: sectors.map((s) => ({
@@ -175,8 +170,8 @@ export default class TaxonomiesController {
     })
   }
 
-  async store({ auth, params, request, response, session }: HttpContext) {
-    await assertEditable(auth)
+  async store({ session, params, request, response }: HttpContext) {
+    await assertEditable({ session })
     const type = String(params.type ?? '') as TaxonomyType
     if (!(TYPES as readonly string[]).includes(type)) {
       session.flash('error', 'Unknown taxonomy type')
@@ -222,8 +217,8 @@ export default class TaxonomiesController {
     return response.redirect().back()
   }
 
-  async update({ auth, params, request, response, session }: HttpContext) {
-    await assertEditable(auth)
+  async update({ session, params, request, response }: HttpContext) {
+    await assertEditable({ session })
     const type = String(params.type ?? '') as TaxonomyType
     const id = String(params.id ?? '')
     const payload = await request.validateUsing(taxonomyRenameValidator)
@@ -252,8 +247,8 @@ export default class TaxonomiesController {
     return response.redirect().back()
   }
 
-  async destroy({ auth, params, response, session }: HttpContext) {
-    await assertEditable(auth)
+  async destroy({ session, params, response }: HttpContext) {
+    await assertEditable({ session })
     const type = String(params.type ?? '') as TaxonomyType
     const id = String(params.id ?? '')
 

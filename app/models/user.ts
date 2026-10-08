@@ -4,17 +4,6 @@ import { compose } from '@adonisjs/core/helpers'
 import { withAuthFinder } from '@adonisjs/auth/mixins/lucid'
 
 export default class User extends compose(UserSchema, withAuthFinder(hash)) {
-  get appAccessList(): string[] {
-    try {
-      const raw = (this as unknown as Record<string, unknown>).appAccess
-      if (Array.isArray(raw)) return raw as string[]
-      if (typeof raw === 'string' && raw.length > 0) return JSON.parse(raw) as string[]
-    } catch {
-      // fall through
-    }
-    return []
-  }
-
   get initials() {
     const [first, last] = this.fullName ? this.fullName.split(' ') : this.email.split('@')
     if (first && last) {

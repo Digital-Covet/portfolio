@@ -14,15 +14,10 @@ import Client from '#models/client'
 import DirectoryUser from '#models/directory_user'
 import { shareValidator } from '#validators/share'
 import { relativeFromISO, shareStatus } from '#services/portfolio_queries'
+import { isAdminSession } from '#services/portfolio_auth'
 
-const ROLE_RANK = { employee: 0, admin: 1, superadmin: 2 } as const
-
-function canUseRuleFilters(role: unknown): boolean {
-  return (ROLE_RANK[role as keyof typeof ROLE_RANK] ?? 0) >= ROLE_RANK.admin
-}
-
-function roleOf(auth: HttpContext['auth']): unknown {
-  return (auth.user as unknown as { role?: unknown } | null)?.role
+function canUseRuleFilters(ctx: Pick<HttpContext, 'session'>): boolean {
+  return isAdminSession(ctx)
 }
 
 export type StaffShareStatus = 'active' | 'expiring' | 'expired' | 'limit'
@@ -152,7 +147,7 @@ export default class SharesController {
     })
   }
 
-  async new({ auth, inertia, request }: HttpContext) {
+  async new({ session, inertia, request }: HttpContext) {
     const preselect = String(request.input('caseStudy', '') ?? '')
     return inertia.render('share_builder', {
       mode: 'new',
@@ -186,7 +181,7 @@ export default class SharesController {
       permissions: {
         editable: true,
         ownerName: null as string | null,
-        canUseFilters: canUseRuleFilters(roleOf(auth)),
+        canUseFilters: canUseRuleFilters({ session }),
       },
     })
   }
@@ -195,7 +190,7 @@ export default class SharesController {
     const payload = await request.validateUsing(shareValidator)
     // Employees may only share specific case studies — taxonomy/client
     // filter rules are admin+.
-    if (payload.mode === 'rule' && !canUseRuleFilters(roleOf(auth))) {
+    if (payload.mode === 'rule' && !canUseRuleFilters({ session })) {
       response.status(403)
       return inertia.render('errors/forbidden', {
         message: 'Only admins can share with filters. Pick specific case studies instead.',
@@ -303,7 +298,7 @@ export default class SharesController {
     })
   }
 
-  async edit({ auth, inertia, params }: HttpContext) {
+  async edit({ session, inertia, params }: HttpContext) {
     const id = String(params.id ?? '')
     const s = await ShareLink.find(id)
     if (!s) return inertia.render('errors/not_found', { message: 'Share not found' })
@@ -351,14 +346,14 @@ export default class SharesController {
       permissions: {
         editable: true,
         ownerName: null as string | null,
-        canUseFilters: canUseRuleFilters(roleOf(auth)),
+        canUseFilters: canUseRuleFilters({ session }),
       },
     })
   }
 
-  async update({ auth, request, response, session, params, inertia }: HttpContext) {
+  async update({ request, response, session, params, inertia }: HttpContext) {
     const payload = await request.validateUsing(shareValidator)
-    if (payload.mode === 'rule' && !canUseRuleFilters(roleOf(auth))) {
+    if (payload.mode === 'rule' && !canUseRuleFilters({ session })) {
       response.status(403)
       return inertia.render('errors/forbidden', {
         message: 'Only admins can share with filters. Pick specific case studies instead.',
@@ -396,8 +391,8 @@ export default class SharesController {
     return response.redirect('/shares')
   }
 
-  async preview({ auth, request, response }: HttpContext) {
-    if (!canUseRuleFilters(roleOf(auth))) {
+  async preview({ session, request, response }: HttpContext) {
+    if (!canUseRuleFilters({ session })) {
       return response.forbidden({ message: 'Only admins can preview filter rules' })
     }
     const ids = async (table: string, names: string[]) => {
