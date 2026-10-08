@@ -4,8 +4,10 @@
   "private": true,
   "type": "module",
   "license": "UNLICENSED",
+  "packageManager": "pnpm@11.16.0",
   "engines": {
-    "node": ">=24.0.0"
+    "node": "26.10.0",
+    "pnpm": "11.16.0"
   },
   "scripts": {
     "start": "node bin/server.js",
@@ -103,7 +105,7 @@
   },
   "overrides": {
     "eslint-plugin-react": {
-      "eslint": "$eslint"
+      "eslint": "^10.11.0"
     }
   },
   "allowScripts": {
