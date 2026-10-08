@@ -3,7 +3,18 @@ node_modules
 build
 tmp/*
 !tmp/.gitkeep
-.adonisjs
+# AdonisJS codegen output is gitignored, except route-derived files.
+# "ace build" never boots the app nor runs the routesScanned hook, so files
+# derived from committed routes are never regenerated during a build and a
+# fresh checkout (CI/Railway) would fail. Everything else under .adonisjs/
+# is rewritten by "ace build" itself before tsc/vite run.
+.adonisjs/*
+!.adonisjs/client
+.adonisjs/client/*
+!.adonisjs/client/registry
+!.adonisjs/server
+.adonisjs/server/*
+!.adonisjs/server/routes.d.ts
 
 # Secrets
 .env
