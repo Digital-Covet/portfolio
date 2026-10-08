@@ -4,7 +4,6 @@ import { compose } from '@adonisjs/core/helpers'
 import { withAuthFinder } from '@adonisjs/auth/mixins/lucid'
 
 export default class User extends compose(UserSchema, withAuthFinder(hash)) {
-  static connection = 'sqlite'
   get appAccessList(): string[] {
     try {
       const raw = (this as unknown as Record<string, unknown>).appAccess

@@ -3,8 +3,8 @@ import { DateTime } from 'luxon'
 
 /**
  * Read-only view of the Supabase `user` (Better Auth) table for owner names.
- * Auth sessions keep using the local sqlite `User` model — do not use this
- * model for login.
+ * Auth sessions use the postgres `User` model (default connection in
+ * non-test envs) — do not use this model for login.
  */
 export default class DirectoryUser extends BaseModel {
   static connection = 'postgres'
