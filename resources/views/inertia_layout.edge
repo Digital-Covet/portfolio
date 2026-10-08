@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html class="{{ request.plainCookie('app_theme', { defaultValue: 'dark', encoded: false }) === 'dark' ? 'dark' : '' }}">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title data-inertia>
+      Digital Covet Portfolio
+    </title>
+
+    <script>
+      try {
+        var t = document.cookie.match(/(?:^|; )app_theme=([^;]*)/)
+        var theme = t ? decodeURIComponent(t[1]) : 'dark'
+        if (theme === 'system') {
+          theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+        }
+        document.documentElement.classList.toggle('dark', theme === 'dark')
+      } catch (e) {}
+    </script>
+
+    @viteReactRefresh()
+    @vite(['inertia/app.tsx'])
+    @inertiaHead()
+    @stack('dumper')
+  </head>
+
+  <body>
+    @inertia()
+  </body>
+
+</html>
