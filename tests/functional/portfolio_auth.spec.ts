@@ -23,11 +23,17 @@ test.group('Portfolio IAM authz (fail-closed)', () => {
   test('unknown or missing role never falls back to employee', ({ assert }) => {
     assert.isNull(toIdentityRoleStrict(undefined))
     assert.isNull(toIdentityRoleStrict(''))
-    assert.isNull(toIdentityRoleStrict('Employee'))
     assert.isNull(toIdentityRoleStrict('forged-admin'))
     assert.strictEqual(toIdentityRoleStrict('employee'), 'employee')
     assert.strictEqual(toIdentityRoleStrict('admin'), 'admin')
     assert.strictEqual(toIdentityRoleStrict('superadmin'), 'superadmin')
+  })
+
+  test('IAM label casing normalizes without opening a bypass', ({ assert }) => {
+    assert.strictEqual(toIdentityRoleStrict('Employee'), 'employee')
+    assert.strictEqual(toIdentityRoleStrict(' Admin '), 'admin')
+    assert.strictEqual(toIdentityRoleStrict('SuperAdmin'), 'superadmin')
+    assert.isNull(toIdentityRoleStrict('member'))
   })
 
   test('portfolio access requires the Portfolio claim for every role', ({ assert }) => {

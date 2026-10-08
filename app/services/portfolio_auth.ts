@@ -16,9 +16,13 @@ export function isIdentityRole(value: unknown): value is IdentityRole {
  * Strict role parsing for authorization decisions.
  * Returns null instead of falling back to 'employee' so a missing /
  * forged / unknown role can never grant access.
+ * Accepts IAM label casing ("Employee", " Admin ") by normalizing to the
+ * canonical lowercase value; anything else stays null (fail-closed).
  */
 export function toIdentityRoleStrict(value: unknown): IdentityRole | null {
-  return isIdentityRole(value) ? value : null
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().toLowerCase()
+  return isIdentityRole(normalized) ? normalized : null
 }
 
 function readSession(ctx: Pick<HttpContext, 'session'>, key: string): unknown {
