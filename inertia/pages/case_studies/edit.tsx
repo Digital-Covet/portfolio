@@ -38,6 +38,8 @@ import AppLayout from '~/layouts/app'
 import { embedUrl } from '~/lib/embed'
 import { postJson } from '~/lib/upload'
 
+const MAX_GALLERY = 30
+
 /* -------------------------------------------------------------------------- */
 /* Types                                                                       */
 /* -------------------------------------------------------------------------- */
@@ -787,8 +789,9 @@ export default function CaseStudyEdit({ study, options }: { study: StudyProp; op
               accept="image/jpeg,image/png,image/webp,image/avif"
               multiple
               compact
+              remaining={MAX_GALLERY - form.gallery.length}
               prompt="Drop images to add them to the gallery"
-              hint="Up to 10 MB each"
+              hint={`Up to 10 MB each · max ${MAX_GALLERY} images`}
               onBusyChange={setUploading}
               onUploaded={(f) =>
                 setForm((cur) => ({

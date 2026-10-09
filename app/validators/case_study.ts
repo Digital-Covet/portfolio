@@ -17,7 +17,7 @@ export const caseStudyValidator = vine.create({
   /** Sections the editor has no field for, kept verbatim so a save never drops them. */
   extra: vine.string().maxLength(40000).optional(),
   heroFileId: vine.string().uuid().nullable().optional(),
-  galleryIds: ids(),
+  galleryIds: vine.array(vine.string().uuid()).maxLength(30),
   attachmentIds: ids(),
   videoUrls: vine
     .array(

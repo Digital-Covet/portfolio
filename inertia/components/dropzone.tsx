@@ -12,10 +12,14 @@ type Props = {
   hint?: string
   compact?: boolean
   className?: string
+  /** How many more files this zone may accept; extra files are skipped with a toast. */
+  remaining?: number
   onUploaded: (file: Uploaded) => void
   /** Fires while any upload is running, so the page can hold back saves. */
   onBusyChange?: (busy: boolean) => void
 }
+
+const CONCURRENCY = 3
 
 type Job = { key: string; name: string; progress: number }
 
@@ -28,6 +32,7 @@ export function Dropzone({
   hint,
   compact,
   className = '',
+  remaining,
   onUploaded,
   onBusyChange,
 }: Props) {
@@ -37,23 +42,44 @@ export function Dropzone({
   const [over, setOver] = useState(false)
   const [jobs, setJobs] = useState<Job[]>([])
 
-  const run = async (files: File[]) => {
-    for (const file of multiple ? files : files.slice(0, 1)) {
-      const key = `${file.name}-${crypto.randomUUID()}`
-      active.current++
-      onBusyChange?.(true)
-      setJobs((j) => [...j, { key, name: file.name, progress: 0 }])
-      try {
-        const done = await uploadFile(file, kind, (p) =>
-          setJobs((j) => j.map((x) => (x.key === key ? { ...x, progress: p } : x)))
-        )
-        onUploaded(done)
-      } catch (e) {
-        toast.error(`${file.name}: ${(e as Error).message}`)
-      } finally {
-        setJobs((j) => j.filter((x) => x.key !== key))
-        if (--active.current === 0) onBusyChange?.(false)
-      }
+  const uploadOne = async (file: File) => {
+    const key = `${file.name}-${crypto.randomUUID()}`
+    setJobs((j) => [...j, { key, name: file.name, progress: 0 }])
+    try {
+      const done = await uploadFile(file, kind, (p) =>
+        setJobs((j) => j.map((x) => (x.key === key ? { ...x, progress: p } : x)))
+      )
+      onUploaded(done)
+    } catch (e) {
+      toast.error(`${file.name}: ${(e as Error).message}`)
+    } finally {
+      setJobs((j) => j.filter((x) => x.key !== key))
+    }
+  }
+
+  const run = async (dropped: File[]) => {
+    let files = multiple ? dropped : dropped.slice(0, 1)
+    if (remaining !== undefined && files.length > remaining) {
+      toast.error(
+        remaining > 0
+          ? `Only ${remaining} more file${remaining === 1 ? '' : 's'} allowed; extra files skipped.`
+          : 'File limit reached.'
+      )
+      files = files.slice(0, Math.max(remaining, 0))
+    }
+    if (files.length === 0) return
+
+    // Hold saves until every file in this batch has settled.
+    active.current++
+    onBusyChange?.(true)
+    const queue = [...files]
+    const worker = async () => {
+      for (let file = queue.shift(); file; file = queue.shift()) await uploadOne(file)
+    }
+    try {
+      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker))
+    } finally {
+      if (--active.current === 0) onBusyChange?.(false)
     }
   }
 
