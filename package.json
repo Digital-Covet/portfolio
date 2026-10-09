@@ -103,11 +103,6 @@
       "./app/middleware/*.ts"
     ]
   },
-  "overrides": {
-    "eslint-plugin-react": {
-      "eslint": "$eslint"
-    }
-  },
   "allowScripts": {
     "@swc/core": true,
     "better-sqlite3": true,
