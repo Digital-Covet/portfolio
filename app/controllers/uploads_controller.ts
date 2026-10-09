@@ -15,7 +15,17 @@ const KINDS = {
   },
 } as const
 
-const kindValidator = vine.create({ kind: vine.enum(['image', 'attachment']) })
+const kindValidator = vine.create({
+  kind: vine.enum(['image', 'attachment']),
+  folder: vine.enum(['case-studies', 'logos']).optional(),
+})
+
+/** Drops control characters from the client's file name; it is metadata only. */
+function cleanName(name: string, extname: string) {
+  // eslint-disable-next-line no-control-regex
+  const cleaned = name.replace(/[\u0000-\u001f\u007f]/g, '').trim()
+  return (cleaned || `file.${extname}`).slice(0, 255)
+}
 
 /**
  * Editor uploads. Everything lands in the private bucket and is read back through
@@ -23,7 +33,7 @@ const kindValidator = vine.create({ kind: vine.enum(['image', 'attachment']) })
  */
 export default class UploadsController {
   async store({ request, response, auth }: HttpContext) {
-    const { kind } = await request.validateUsing(kindValidator)
+    const { kind, folder = 'case-studies' } = await request.validateUsing(kindValidator)
     const rules = KINDS[kind]
 
     const upload = request.file('file', { size: rules.size, extnames: [...rules.extnames] })
@@ -38,7 +48,8 @@ export default class UploadsController {
     }
 
     // Never trust the client file name for the object path.
-    const storagePath = `case-studies/${randomUUID()}.${upload.extname}`
+    const extname = (upload.extname ?? '').toLowerCase()
+    const storagePath = `${folder}/${randomUUID()}.${extname}`
     const mime = `${upload.type ?? 'application'}/${upload.subtype ?? 'octet-stream'}`
 
     try {
@@ -52,7 +63,7 @@ export default class UploadsController {
     const file = await File.create({
       bucket,
       storagePath,
-      originalName: upload.clientName.slice(0, 255),
+      originalName: cleanName(upload.clientName, extname),
       mimeType: mime,
       sizeBytes: upload.size,
       visibility: 'authenticated',
