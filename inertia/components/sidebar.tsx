@@ -176,10 +176,43 @@ type SidebarProps = {
   onNavigate?: () => void
 }
 
+function SidebarToggle({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+  const label = collapsed ? 'Expand sidebar' : 'Collapse sidebar'
+  return (
+    <Tooltip.Root>
+      <Tooltip.Trigger
+        onClick={onToggle}
+        aria-label={label}
+        className={`flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground ${
+          collapsed ? 'mb-2' : ''
+        }`}
+      >
+        {collapsed ? (
+          <PanelLeftOpen size={18} strokeWidth={1.75} />
+        ) : (
+          <PanelLeftClose size={18} strokeWidth={1.75} />
+        )}
+      </Tooltip.Trigger>
+      <Tooltip.Portal>
+        <Tooltip.Positioner side="right" sideOffset={8}>
+          <Tooltip.Popup className="rounded-md border border-[var(--border-raised)] bg-surface-raised px-2 py-1 text-xs shadow-[var(--shadow-raised)]">
+            {label} <kbd className="font-mono">[</kbd>
+          </Tooltip.Popup>
+        </Tooltip.Positioner>
+      </Tooltip.Portal>
+    </Tooltip.Root>
+  )
+}
+
 export function SidebarContent({ collapsed, onToggle, onOpenPalette, onNavigate }: SidebarProps) {
   return (
     <>
-      <Logo collapsed={collapsed} />
+      <div className={collapsed ? 'flex flex-col items-center' : 'flex items-center pr-3'}>
+        <div className="min-w-0 flex-1">
+          <Logo collapsed={collapsed} />
+        </div>
+        {onToggle && <SidebarToggle collapsed={collapsed} onToggle={onToggle} />}
+      </div>
       <button
         type="button"
         onClick={onOpenPalette}
@@ -197,29 +230,6 @@ export function SidebarContent({ collapsed, onToggle, onOpenPalette, onNavigate 
       <Nav collapsed={collapsed} onNavigate={onNavigate} />
       <div className="mt-auto flex flex-col gap-2 border-t border-border px-3 pt-3">
         {!collapsed && <ThemeToggle />}
-        {onToggle && (
-          <Tooltip.Root>
-            <Tooltip.Trigger
-              onClick={onToggle}
-              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              className="flex h-9 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
-            >
-              {collapsed ? (
-                <PanelLeftOpen size={18} strokeWidth={1.75} />
-              ) : (
-                <PanelLeftClose size={18} strokeWidth={1.75} />
-              )}
-            </Tooltip.Trigger>
-            <Tooltip.Portal>
-              <Tooltip.Positioner side="right" sideOffset={8}>
-                <Tooltip.Popup className="rounded-md border border-[var(--border-raised)] bg-surface-raised px-2 py-1 text-xs shadow-[var(--shadow-raised)]">
-                  {collapsed ? 'Expand sidebar' : 'Collapse sidebar'}{' '}
-                  <kbd className="font-mono">[</kbd>
-                </Tooltip.Popup>
-              </Tooltip.Positioner>
-            </Tooltip.Portal>
-          </Tooltip.Root>
-        )}
         <UserMenu collapsed={collapsed} />
       </div>
     </>
