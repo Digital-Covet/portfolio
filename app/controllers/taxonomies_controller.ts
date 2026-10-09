@@ -1,278 +1,200 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import db from '@adonisjs/lucid/services/db'
-import { randomUUID } from 'node:crypto'
-import Sector from '#models/sector'
-import Industry from '#models/industry'
-import KeyBusiness from '#models/key_business'
-import WorkCategory from '#models/work_category'
-import ServiceItem from '#models/service_item'
-import BusinessModel from '#models/business_model'
-import { taxonomyCreateValidator, taxonomyRenameValidator } from '#validators/taxonomy'
-import { isAdminSession } from '#services/portfolio_auth'
+import { errors } from '@vinejs/vine'
+import { taxonomyValidator } from '#validators/taxonomy'
 
-const TABS = ['hierarchy', 'categories', 'services', 'models'] as const
-type Tab = (typeof TABS)[number]
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-const TYPES = [
-  'sectors',
-  'industries',
-  'key_businesses',
-  'work_categories',
-  'services',
-  'business_models',
-] as const
-type TaxonomyType = (typeof TYPES)[number]
+/** URL segment -> table, parent column and label used in flash messages. */
+const KINDS = {
+  'sector': { table: 'sector', parent: null, label: 'Sector' },
+  'industry': { table: 'industry', parent: 'sector_id', label: 'Industry' },
+  'key-business': { table: 'key_business', parent: 'industry_id', label: 'Key business' },
+  'work-category': { table: 'work_category', parent: null, label: 'Work category' },
+  'service': { table: 'service', parent: null, label: 'Service' },
+  'business-model': { table: 'business_model', parent: null, label: 'Business model' },
+} as const
 
-function canEdit(ctx: Pick<import('@adonisjs/core/http').HttpContext, 'session'>): boolean {
-  return isAdminSession(ctx)
+type Kind = keyof typeof KINDS
+
+const isKind = (k: string): k is Kind => Object.hasOwn(KINDS, k)
+
+type Counts = Map<string, number>
+
+/** Live case studies referencing each row of a taxonomy table. */
+async function caseStudyCounts(table: string) {
+  const via = {
+    sector: `SELECT i.sector_id AS id, count(DISTINCT cs.id)::int AS n
+             FROM case_study cs
+             JOIN case_study_key_business ck ON ck.case_study_id = cs.id
+             JOIN key_business kb ON kb.id = ck.key_business_id
+             JOIN industry i ON i.id = kb.industry_id
+             WHERE cs.deleted_at IS NULL GROUP BY 1`,
+    industry: `SELECT kb.industry_id AS id, count(DISTINCT cs.id)::int AS n
+               FROM case_study cs
+               JOIN case_study_key_business ck ON ck.case_study_id = cs.id
+               JOIN key_business kb ON kb.id = ck.key_business_id
+               WHERE cs.deleted_at IS NULL GROUP BY 1`,
+    key_business: `SELECT ck.key_business_id AS id, count(DISTINCT cs.id)::int AS n
+                   FROM case_study cs
+                   JOIN case_study_key_business ck ON ck.case_study_id = cs.id
+                   WHERE cs.deleted_at IS NULL GROUP BY 1`,
+  } as Record<string, string>
+
+  const sql =
+    via[table] ??
+    `SELECT x.${table}_id AS id, count(DISTINCT cs.id)::int AS n
+     FROM case_study cs
+     JOIN case_study_${table} x ON x.case_study_id = cs.id
+     WHERE cs.deleted_at IS NULL GROUP BY 1`
+  return toMap((await db.rawQuery(sql)).rows)
 }
 
-async function assertEditable(ctx: Pick<import('@adonisjs/core/http').HttpContext, 'session'>) {
-  if (!canEdit(ctx)) {
-    const error = new Error('Only admins can edit taxonomies') as Error & {
-      status?: number
-    }
-    error.status = 403
-    throw error
-  }
-}
-
-function slugFor(name: string): string {
-  return (
-    name
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 120) || 'term'
+/** Live shares whose targeting rules include each row. Business models are not a rule. */
+async function shareCounts(table: string) {
+  if (table === 'business_model') return new Map<string, number>()
+  const { rows } = await db.rawQuery(
+    `SELECT x.${table}_id AS id, count(DISTINCT s.id)::int AS n
+     FROM share_${table} x
+     JOIN share s ON s.id = x.share_id AND s.deleted_at IS NULL
+     GROUP BY 1`
   )
+  return toMap(rows)
 }
 
-/**
- * Taxonomy library backed by live Supabase tables.
- * Live tables use text ids and have no slug column — the `slug` prop sent to
- * the UI is derived from the name so the existing React contract keeps working.
- */
+async function clientCounts() {
+  const { rows } = await db.rawQuery(
+    `SELECT ck.key_business_id AS id, count(DISTINCT c.id)::int AS n
+     FROM client_key_business ck
+     JOIN client c ON c.id = ck.client_id
+     GROUP BY 1`
+  )
+  return toMap(rows)
+}
+
+const toMap = (rows: { id: string; n: number }[]): Counts => new Map(rows.map((r) => [r.id, r.n]))
+
+async function list(table: string, parent?: string) {
+  const [rows, cs, sh] = await Promise.all([
+    db
+      .from(table)
+      .select('id', 'name', ...(parent ? [parent] : []))
+      .orderBy('name'),
+    caseStudyCounts(table),
+    shareCounts(table),
+  ])
+  return rows.map((r: Record<string, string>) => ({
+    id: r.id,
+    name: r.name,
+    parentId: parent ? r[parent] : null,
+    caseStudies: cs.get(r.id) ?? 0,
+    shares: sh.get(r.id) ?? 0,
+  }))
+}
+
+const duplicate = () =>
+  new errors.E_VALIDATION_ERROR([
+    { field: 'name', message: 'That name already exists here.', rule: 'unique' },
+  ])
+
+const pgCode = (e: unknown) => (e as { code?: string }).code
+
 export default class TaxonomiesController {
-  async index({ session, inertia, request }: HttpContext) {
-    const rawTab = String(request.input('tab', 'hierarchy') ?? 'hierarchy')
-    const tab: Tab = (TABS as readonly string[]).includes(rawTab) ? (rawTab as Tab) : 'hierarchy'
-
-    const rawSector = request.input('sectorId', null)
-    const rawIndustry = request.input('industryId', null)
-    const sectorId = rawSector === null || rawSector === '' ? null : String(rawSector)
-    const industryId = rawIndustry === null || rawIndustry === '' ? null : String(rawIndustry)
-
-    const [sectors, industries, keyBusinesses, categories, services, models] = await Promise.all([
-      Sector.query().orderBy('name', 'asc'),
-      Industry.query().orderBy('name', 'asc'),
-      KeyBusiness.query().orderBy('name', 'asc'),
-      WorkCategory.query().orderBy('name', 'asc'),
-      ServiceItem.query().orderBy('name', 'asc'),
-      BusinessModel.query().orderBy('name', 'asc'),
-    ])
-
-    const validSector = sectors.some((s) => s.id === sectorId) ? sectorId : null
-    const validIndustry = industries.some(
-      (i) => i.id === industryId && (validSector === null || i.sectorId === validSector)
-    )
-      ? industryId
-      : null
-
-    const [sectorCounts, industryCounts, keyCounts, catCounts, svcCounts, modelCounts] =
-      await Promise.all([
-        db
-          .from('case_study_key_businesses')
-          .join('key_businesses', 'key_businesses.id', 'case_study_key_businesses.key_business_id')
-          .join('industries', 'industries.id', 'key_businesses.industry_id')
-          .groupBy('industries.sector_id')
-          .select('industries.sector_id as id')
-          .count('* as count'),
-        db
-          .from('case_study_key_businesses')
-          .join('key_businesses', 'key_businesses.id', 'case_study_key_businesses.key_business_id')
-          .groupBy('key_businesses.industry_id')
-          .select('key_businesses.industry_id as id')
-          .count('* as count'),
-        db
-          .from('case_study_key_businesses')
-          .groupBy('key_business_id')
-          .select('key_business_id as id')
-          .count('* as count'),
-        db
-          .from('case_study_categories')
-          .groupBy('category_id')
-          .select('category_id as id')
-          .count('* as count'),
-        db
-          .from('case_study_services')
-          .groupBy('service_id')
-          .select('service_id as id')
-          .count('* as count'),
-        db
-          .from('case_study_business_models')
-          .groupBy('business_model_id')
-          .select('business_model_id as id')
-          .count('* as count'),
-      ])
-    const toMap = (rows: any[]) =>
-      new Map<string, number>(rows.map((r) => [String(r.id), Number(r.count)]))
-    const sectorCount = toMap(sectorCounts)
-    const industryCount = toMap(industryCounts)
-    const keyCount = toMap(keyCounts)
-    const catCount = toMap(catCounts)
-    const svcCount = toMap(svcCounts)
-    const modelCount = toMap(modelCounts)
-
-    return inertia.render('taxonomies', {
-      tab,
-      canEdit: canEdit({ session }),
-      selectedSectorId: validSector,
-      selectedIndustryId: validIndustry,
-      sectors: sectors.map((s) => ({
-        id: s.id,
-        name: s.name,
-        slug: slugFor(s.name),
-        count: sectorCount.get(s.id) ?? 0,
-      })),
-      industries: industries.map((i) => ({
-        id: i.id,
-        name: i.name,
-        slug: slugFor(i.name),
-        sectorId: i.sectorId,
-        count: industryCount.get(i.id) ?? 0,
-      })),
-      keyBusinesses: keyBusinesses.map((k) => ({
-        id: k.id,
-        name: k.name,
-        slug: slugFor(k.name),
-        industryId: k.industryId,
-        count: keyCount.get(k.id) ?? 0,
-      })),
-      workCategories: categories.map((c) => ({
-        id: c.id,
-        name: c.name,
-        slug: slugFor(c.name),
-        count: catCount.get(c.id) ?? 0,
-      })),
-      services: services.map((s) => ({
-        id: s.id,
-        name: s.name,
-        slug: slugFor(s.name),
-        count: svcCount.get(s.id) ?? 0,
-      })),
-      businessModels: models.map((m) => ({
-        id: m.id,
-        name: m.name,
-        slug: slugFor(m.name),
-        count: modelCount.get(m.id) ?? 0,
-      })),
+  /**
+   * Whole vocabulary in one payload: the sector tree plus the three flat lists.
+   * It is small and bounded, and the tabs switch client-side without a request.
+   */
+  async index({ inertia }: HttpContext) {
+    return inertia.render('taxonomies/index', {
+      sectors: async () => {
+        const [sectors, industries, keyBusinesses, clients] = await Promise.all([
+          list('sector'),
+          list('industry', 'sector_id'),
+          list('key_business', 'industry_id'),
+          clientCounts(),
+        ])
+        const kbByIndustry = Map.groupBy(keyBusinesses, (k) => k.parentId!)
+        const indBySector = Map.groupBy(industries, (i) => i.parentId!)
+        return sectors.map(({ parentId: _s, ...s }) => ({
+          ...s,
+          industries: (indBySector.get(s.id) ?? []).map(({ parentId: _i, ...i }) => ({
+            ...i,
+            keyBusinesses: (kbByIndustry.get(i.id) ?? []).map(({ parentId: _k, ...k }) => ({
+              ...k,
+              clients: clients.get(k.id) ?? 0,
+            })),
+          })),
+        }))
+      },
+      workCategories: () => list('work_category'),
+      services: () => list('service'),
+      businessModels: () => list('business_model'),
     })
   }
 
-  async store({ session, params, request, response }: HttpContext) {
-    await assertEditable({ session })
-    const type = String(params.type ?? '') as TaxonomyType
-    if (!(TYPES as readonly string[]).includes(type)) {
-      session.flash('error', 'Unknown taxonomy type')
-      return response.redirect().back()
-    }
-    const payload = await request.validateUsing(taxonomyCreateValidator)
+  async store({ params, request, response, session }: HttpContext) {
+    if (!isKind(params.kind)) return response.notFound()
+    const kind = KINDS[params.kind]
+    const { name, parentId } = await request.validateUsing(taxonomyValidator)
 
-    if (type === 'sectors') {
-      await Sector.create({ id: randomUUID(), name: payload.name })
-      session.flash('success', `Sector “${payload.name}” added`)
-    } else if (type === 'industries') {
-      if (!payload.sectorId || !(await Sector.find(payload.sectorId))) {
-        session.flash('error', 'Choose a sector first')
-        return response.redirect().back()
-      }
-      await Industry.create({
-        id: randomUUID(),
-        name: payload.name,
-        sectorId: String(payload.sectorId),
-      })
-      session.flash('success', `Industry “${payload.name}” added`)
-    } else if (type === 'key_businesses') {
-      if (!payload.industryId || !(await Industry.find(payload.industryId))) {
-        session.flash('error', 'Choose an industry first')
-        return response.redirect().back()
-      }
-      await KeyBusiness.create({
-        id: randomUUID(),
-        name: payload.name,
-        industryId: String(payload.industryId),
-      })
-      session.flash('success', `Key business “${payload.name}” added`)
-    } else if (type === 'work_categories') {
-      await WorkCategory.create({ id: randomUUID(), name: payload.name })
-      session.flash('success', `Category “${payload.name}” added`)
-    } else if (type === 'services') {
-      await ServiceItem.create({ id: randomUUID(), name: payload.name })
-      session.flash('success', `Service “${payload.name}” added`)
-    } else {
-      await BusinessModel.create({ id: randomUUID(), name: payload.name })
-      session.flash('success', `Business model “${payload.name}” added`)
+    const row: Record<string, string> = { name }
+    if (kind.parent) {
+      if (!parentId) return response.unprocessableEntity({ errors: [{ field: 'parentId' }] })
+      row[kind.parent] = parentId
     }
+
+    try {
+      await db.table(kind.table).insert(row)
+    } catch (e) {
+      if (pgCode(e) === '23505') throw duplicate()
+      if (pgCode(e) === '23503') return response.notFound()
+      throw e
+    }
+    session.flash('success', `${kind.label} “${name}” added.`)
     return response.redirect().back()
   }
 
-  async update({ session, params, request, response }: HttpContext) {
-    await assertEditable({ session })
-    const type = String(params.type ?? '') as TaxonomyType
-    const id = String(params.id ?? '')
-    const payload = await request.validateUsing(taxonomyRenameValidator)
+  async update({ params, request, response, session }: HttpContext) {
+    if (!isKind(params.kind) || !UUID.test(params.id)) return response.notFound()
+    const kind = KINDS[params.kind]
+    const { name } = await request.validateUsing(taxonomyValidator)
 
-    const rename = async (
-      find: () => Promise<{ name: string; save: () => Promise<unknown> } | null>
-    ) => {
-      const row = await find()
-      if (!row) {
-        session.flash('error', 'Term not found')
-        return response.redirect().back()
-      }
-      row.name = payload.name
-      await row.save()
-      session.flash('success', `Renamed to “${payload.name}”`)
-      return response.redirect().back()
+    let updated: unknown[]
+    try {
+      updated = await db.from(kind.table).where('id', params.id).update({ name }).returning('id')
+    } catch (e) {
+      if (pgCode(e) === '23505') throw duplicate()
+      throw e
     }
-
-    if (type === 'sectors') return rename(() => Sector.find(id))
-    if (type === 'industries') return rename(() => Industry.find(id))
-    if (type === 'key_businesses') return rename(() => KeyBusiness.find(id))
-    if (type === 'work_categories') return rename(() => WorkCategory.find(id))
-    if (type === 'services') return rename(() => ServiceItem.find(id))
-    if (type === 'business_models') return rename(() => BusinessModel.find(id))
-    session.flash('error', 'Unknown taxonomy type')
+    if (!updated.length) return response.notFound()
+    session.flash('success', `${kind.label} renamed to “${name}”.`)
     return response.redirect().back()
   }
 
-  async destroy({ session, params, response }: HttpContext) {
-    await assertEditable({ session })
-    const type = String(params.type ?? '') as TaxonomyType
-    const id = String(params.id ?? '')
+  /**
+   * Every junction references the taxonomy row with ON DELETE RESTRICT, so a row that is
+   * still tagged, targeted by a share rule, or has children cannot be removed. The dialog
+   * already blocks live usage; this catches the remainder (e.g. soft-deleted studies).
+   */
+  async destroy({ params, response, session }: HttpContext) {
+    if (!isKind(params.kind) || !UUID.test(params.id)) return response.notFound()
+    const kind = KINDS[params.kind]
 
-    const remove = async (
-      find: () => Promise<{ name: string; delete: () => Promise<void> } | null>
-    ) => {
-      const row = await find()
-      if (!row) {
-        session.flash('error', 'Term not found')
+    let deleted: unknown[]
+    try {
+      deleted = await db.from(kind.table).where('id', params.id).delete().returning('id')
+    } catch (e) {
+      if (pgCode(e) === '23503') {
+        session.flash(
+          'error',
+          `${kind.label} is still in use. Reassign or remove what references it first.`
+        )
         return response.redirect().back()
       }
-      const name = row.name
-      await row.delete()
-      session.flash('success', `Deleted “${name}”`)
-      return response.redirect().back()
+      throw e
     }
-
-    if (type === 'sectors') return remove(() => Sector.find(id))
-    if (type === 'industries') return remove(() => Industry.find(id))
-    if (type === 'key_businesses') return remove(() => KeyBusiness.find(id))
-    if (type === 'work_categories') return remove(() => WorkCategory.find(id))
-    if (type === 'services') return remove(() => ServiceItem.find(id))
-    if (type === 'business_models') return remove(() => BusinessModel.find(id))
-    session.flash('error', 'Unknown taxonomy type')
+    if (!deleted.length) return response.notFound()
+    session.flash('success', `${kind.label} deleted.`)
     return response.redirect().back()
   }
 }

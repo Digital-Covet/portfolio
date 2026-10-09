@@ -22,18 +22,21 @@ export default await Env.create(new URL('../', import.meta.url), {
   APP_KEY: Env.schema.secret(),
   APP_URL: Env.schema.string({ format: 'url', tld: false }),
 
+  // IAM (Digital Covet ID) OAuth client
+  IAM_URL: Env.schema.string({ format: 'url', tld: false }),
+  IAM_CLIENT_ID: Env.schema.string(),
+  IAM_CLIENT_SECRET: Env.schema.secret(),
+
   // Session
   SESSION_DRIVER: Env.schema.enum(['cookie', 'memory', 'database'] as const),
 
-  // IAM (Better Auth OAuth2 provider)
-  IAM_BASE_URL: Env.schema.string({ format: 'url', tld: false }),
-  OAUTH_CLIENT_ID: Env.schema.string(),
-  OAUTH_CLIENT_SECRET: Env.schema.string(),
-  OAUTH_REDIRECT_URI: Env.schema.string({ format: 'url', tld: false }),
-  OAUTH_SCOPES: Env.schema.string(),
-  FRONT_CHANNEL_LOGOUT_SECRET: Env.schema.secret.optional(),
-
-  // Supabase Postgres (Lucid pg connection; connection strings are not http URLs)
+  // Database (Supabase poolers)
   DATABASE_URL: Env.schema.string(),
   DIRECT_URL: Env.schema.string(),
+
+  // Supabase Object Storage
+  SUPABASE_URL: Env.schema.string.optional({ format: 'url', tld: true }),
+  SUPABASE_SECRET_KEY: Env.schema.string.optional(),
+  STORAGE_BUCKET_PUBLIC: Env.schema.string.optional(),
+  STORAGE_BUCKET_PRIVATE: Env.schema.string.optional(),
 })

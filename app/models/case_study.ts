@@ -1,81 +1,75 @@
-import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
-import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
-import { DateTime } from 'luxon'
-import Client from '#models/client'
+import { CaseStudySchema } from '#database/schema'
+import { belongsTo, hasMany, manyToMany } from '@adonisjs/lucid/orm'
+import type { BelongsTo, HasMany, ManyToMany } from '@adonisjs/lucid/types/relations'
+import AppUser from '#models/app_user'
+import BusinessModel from '#models/business_model'
 import CaseStudyMetric from '#models/case_study_metric'
+import CaseStudyTestimonial from '#models/case_study_testimonial'
+import CaseStudyVideo from '#models/case_study_video'
+import Client from '#models/client'
+import Department from '#models/department'
+import File from '#models/file'
+import KeyBusiness from '#models/key_business'
+import Service from '#models/service'
+import WorkCategory from '#models/work_category'
+import { liveScope } from '#models/helpers/soft_delete'
 
-export type CaseStudyStatus = 'draft' | 'published' | 'archived'
+export default class CaseStudy extends CaseStudySchema {
+  static table = 'case_study'
 
-/**
- * Supabase `case_studies` table.
- */
-export default class CaseStudy extends BaseModel {
-  static connection = 'postgres'
-  static table = 'case_studies'
+  static live = liveScope
 
-  @column({ isPrimary: true })
-  declare id: string
-
-  @column()
-  declare title: string
-
-  @column()
-  declare slug: string
-
-  @column()
-  declare status: CaseStudyStatus
-
-  @column({ columnName: 'description' })
-  declare description: string | null
-
-  @column({ columnName: 'challenge' })
-  declare challenge: string | null
-
-  @column({ columnName: 'solution' })
-  declare solution: string | null
-
-  @column({ columnName: 'results' })
-  declare results: string | null
-
-  @column({ columnName: 'hero_image_url' })
-  declare heroImageUrl: string | null
-
-  @column({ columnName: 'gallery_urls' })
-  declare galleryUrls: string[] | null
-
-  @column({ columnName: 'video_embed_url' })
-  declare videoEmbedUrl: string | null
-
-  @column({ columnName: 'attachment_urls' })
-  declare attachmentUrls: unknown | null
-
-  @column({ columnName: 'testimonial_quote' })
-  declare testimonialQuote: string | null
-
-  @column({ columnName: 'testimonial_author' })
-  declare testimonialAuthor: string | null
-
-  @column({ columnName: 'testimonial_title' })
-  declare testimonialTitle: string | null
-
-  @column({ columnName: 'client_id' })
-  declare clientId: string | null
-
-  @column({ columnName: 'created_by' })
-  declare createdBy: string | null
-
-  @column.dateTime({ columnName: 'project_date' })
-  declare projectDate: DateTime | null
-
-  @column.dateTime({ autoCreate: true, columnName: 'created_at' })
-  declare createdAt: DateTime
-
-  @column.dateTime({ autoCreate: true, autoUpdate: true, columnName: 'updated_at' })
-  declare updatedAt: DateTime
-
-  @belongsTo(() => Client, { foreignKey: 'clientId' })
+  @belongsTo(() => Client)
   declare client: BelongsTo<typeof Client>
 
-  @hasMany(() => CaseStudyMetric, { foreignKey: 'caseStudyId' })
+  @belongsTo(() => Department)
+  declare department: BelongsTo<typeof Department>
+
+  @belongsTo(() => File, { foreignKey: 'heroFileId' })
+  declare hero: BelongsTo<typeof File>
+
+  @belongsTo(() => AppUser, { foreignKey: 'createdBy' })
+  declare creator: BelongsTo<typeof AppUser>
+
+  @belongsTo(() => AppUser, { foreignKey: 'updatedBy' })
+  declare editor: BelongsTo<typeof AppUser>
+
+  @manyToMany(() => KeyBusiness, { pivotTable: 'case_study_key_business' })
+  declare keyBusinesses: ManyToMany<typeof KeyBusiness>
+
+  @manyToMany(() => WorkCategory, { pivotTable: 'case_study_work_category' })
+  declare workCategories: ManyToMany<typeof WorkCategory>
+
+  @manyToMany(() => Service, { pivotTable: 'case_study_service' })
+  declare services: ManyToMany<typeof Service>
+
+  @manyToMany(() => BusinessModel, { pivotTable: 'case_study_business_model' })
+  declare businessModels: ManyToMany<typeof BusinessModel>
+
+  /**
+   * Gallery images; `sort_order` lives on the pivot row.
+   */
+  @manyToMany(() => File, {
+    pivotTable: 'case_study_image',
+    pivotRelatedForeignKey: 'file_id',
+    pivotColumns: ['sort_order'],
+    pivotTimestamps: true,
+  })
+  declare images: ManyToMany<typeof File>
+
+  @manyToMany(() => File, {
+    pivotTable: 'case_study_attachment',
+    pivotRelatedForeignKey: 'file_id',
+    pivotTimestamps: { createdAt: 'created_at', updatedAt: false },
+  })
+  declare attachments: ManyToMany<typeof File>
+
+  @hasMany(() => CaseStudyVideo)
+  declare videos: HasMany<typeof CaseStudyVideo>
+
+  @hasMany(() => CaseStudyMetric)
   declare metrics: HasMany<typeof CaseStudyMetric>
+
+  @hasMany(() => CaseStudyTestimonial)
+  declare testimonials: HasMany<typeof CaseStudyTestimonial>
 }

@@ -1,434 +1,409 @@
 import type { HttpContext } from '@adonisjs/core/http'
-import db from '@adonisjs/lucid/services/db'
-import { randomUUID } from 'node:crypto'
 import hash from '@adonisjs/core/services/hash'
+import db from '@adonisjs/lucid/services/db'
 import { DateTime } from 'luxon'
-import ShareLink from '#models/share_link'
-import CaseStudy from '#models/case_study'
-import Sector from '#models/sector'
-import Industry from '#models/industry'
-import KeyBusiness from '#models/key_business'
-import WorkCategory from '#models/work_category'
-import ServiceItem from '#models/service_item'
-import Client from '#models/client'
-import DirectoryUser from '#models/directory_user'
-import { shareValidator } from '#validators/share'
-import { relativeFromISO, shareStatus } from '#services/portfolio_queries'
-import { isAdminSession } from '#services/portfolio_auth'
+import Share from '#models/share'
+import { SHARE_STATE_SQL } from '#services/dashboard_service'
+import { UUID } from '#services/file_urls'
+import ShareService, {
+  generateToken,
+  parseAgent,
+  parseRules,
+  RULE_TABLES,
+  type Rule,
+} from '#services/share_service'
+import { RULE_FIELDS, shareValidator } from '#validators/share'
 
-function canUseRuleFilters(ctx: Pick<HttpContext, 'session'>): boolean {
-  return isAdminSession(ctx)
-}
+type Payload = Awaited<ReturnType<typeof shareValidator.validate>>
 
-export type StaffShareStatus = 'active' | 'expiring' | 'expired' | 'limit'
+const service = new ShareService()
 
-const STATUSES = ['all', 'active', 'expiring', 'expired', 'limit'] as const
-type StatusFilter = (typeof STATUSES)[number]
+const VISITS_PER_PAGE = 10
 
-async function pickerOptions() {
-  const [sectors, industries, keyBusinesses, categories, services, clients, studies] =
-    await Promise.all([
-      Sector.query().orderBy('name', 'asc'),
-      Industry.query().orderBy('name', 'asc'),
-      KeyBusiness.query().orderBy('name', 'asc'),
-      WorkCategory.query().orderBy('name', 'asc'),
-      ServiceItem.query().orderBy('name', 'asc'),
-      Client.query().orderBy('name', 'asc'),
-      CaseStudy.query().where('status', 'published').orderBy('updated_at', 'desc').limit(50),
-    ])
-  const clientById = new Map(clients.map((c) => [c.id, c.name]))
-  return {
-    sectors: sectors.map((s) => s.name),
-    industries: industries.map((i) => i.name),
-    keyBusinesses: keyBusinesses.map((k) => k.name),
-    categories: categories.map((c) => c.name),
-    services: services.map((s) => s.name),
-    clients: clients.map((c) => ({ id: c.id, name: c.name })),
-    caseStudies: studies.map((s) => ({
-      id: s.id,
-      title: s.title,
-      slug: s.slug,
-      heroThumb: s.heroImageUrl,
-      clientName: s.clientId ? (clientById.get(s.clientId) ?? '') : '',
-      sector: '',
-      status: s.status,
-    })),
-  }
-}
+/** The six targeting junctions, as relation names on the Share model. */
+const RELATIONS = {
+  sector: 'sectors',
+  industry: 'industries',
+  keyBusiness: 'keyBusinesses',
+  workCategory: 'workCategories',
+  service: 'services',
+  client: 'clients',
+} as const
 
-function toRow(s: ShareLink, ownerName: string | null) {
-  const status = shareStatus(s.expiresAt, s.maxViews, s.viewCount)
-  const hasRule =
-    (s.filterSectorIds?.length ?? 0) > 0 ||
-    (s.filterIndustryIds?.length ?? 0) > 0 ||
-    (s.filterKeyBusinessIds?.length ?? 0) > 0 ||
-    (s.filterCategoryIds?.length ?? 0) > 0 ||
-    (s.filterServiceIds?.length ?? 0) > 0 ||
-    (s.filterClientIds?.length ?? 0) > 0
-  return {
-    id: s.id,
-    recipient: s.recipientName ?? s.name,
-    company: s.recipientEmail ?? '',
-    token: s.token,
-    tokenSuffix: s.token.slice(-6),
-    content: hasRule
-      ? { kind: 'rule' as const, label: 'Filter rule' }
-      : { kind: 'selected' as const, label: `${s.specificCaseStudyIds?.length ?? 0} selected` },
-    hasPassword: !!s.passwordHash,
-    expiresAt: s.expiresAt ? s.expiresAt.toISO() : null,
-    expiresRelative: s.expiresAt ? relativeFromISO(s.expiresAt.toISO()!) : null,
-    views: s.viewCount,
-    maxViews: s.maxViews,
-    status: status as StaffShareStatus,
-    createdAt: s.createdAt.toISO()!,
-    createdRelative: relativeFromISO(s.createdAt.toISO()!),
-    editable: true,
-    ownerName,
-  }
+/** A date-only expiry means "through the end of that day", UTC like the rest of the app. */
+function endOfDay(date: string) {
+  return DateTime.fromISO(date, { zone: 'utc' }).endOf('day')
 }
 
 export default class SharesController {
+  /** Lifecycle control room: every live share with its derived state. */
   async index({ inertia, request }: HttpContext) {
-    const rawStatus = String(request.input('status', 'all') ?? 'all')
-    const status: StatusFilter = (STATUSES as readonly string[]).includes(rawStatus)
-      ? (rawStatus as StatusFilter)
-      : 'all'
-    const page = Math.max(1, Number(request.input('page', 1) ?? 1) || 1)
-    const rawPerPage = String(request.input('perPage', '25') ?? '25')
-    const perPage = ['25', '50'].includes(rawPerPage) ? Number(rawPerPage) : 25
-    const q = String(request.input('q', '') ?? '')
-    const filters = { q, status, page, perPage }
-
-    let query = ShareLink.query().orderBy('created_at', 'desc')
-    if (q) {
-      const like = `%${q}%`
-      query = query.where((b) =>
-        b.whereILike('name', like).orWhereILike('recipient_name', like).orWhereILike('token', like)
-      )
-    }
-    const all = await query
-    const ownerIds = [...new Set(all.map((s) => s.createdBy).filter(Boolean))] as string[]
-    const owners = ownerIds.length > 0 ? await DirectoryUser.query().whereIn('id', ownerIds) : []
-    const ownerById = new Map(owners.map((o) => [o.id, o.name]))
-
-    let rows = all.map((s) => ({
-      model: s,
-      status: shareStatus(s.expiresAt, s.maxViews, s.viewCount),
-    }))
-    if (status !== 'all') rows = rows.filter((r) => r.status === status)
-
-    const counts = {
-      all: all.length,
-      active: 0,
-      expiring: 0,
-      expired: 0,
-      limit: 0,
-    }
-    all.forEach((s) => {
-      counts[shareStatus(s.expiresAt, s.maxViews, s.viewCount)] += 1
-    })
-
-    const total = rows.length
-    const slice = rows.slice((page - 1) * perPage, page * perPage)
-
-    return inertia.render('shares', {
-      filters,
-      counts,
-      rows: slice.map(({ model: s }) =>
-        toRow(s, s.createdBy ? (ownerById.get(s.createdBy) ?? null) : null)
-      ),
-      meta: {
-        total,
-        from: total === 0 ? 0 : (page - 1) * perPage + 1,
-        to: (page - 1) * perPage + slice.length,
-        page,
-        perPage,
+    return inertia.render('shares/index', {
+      shares: async () => {
+        const { rows } = await db.rawQuery(
+          `SELECT s.id, s.name, s.token, s.expires_at, s.max_views, s.view_count,
+                  s.password_hash IS NOT NULL AS protected,
+                  ${SHARE_STATE_SQL} AS state,
+                  coalesce(u.name, u.email) AS owner,
+                  (SELECT count(*)::int FROM share_case_study x WHERE x.share_id = s.id) AS pinned,
+                  ${Object.values(RULE_TABLES)
+                    .map((t) => `(SELECT count(*)::int FROM ${t.table} x WHERE x.share_id = s.id)`)
+                    .join(' + ')} AS conditions
+           FROM share s
+           JOIN app_user u ON u.id = s.created_by
+           WHERE s.deleted_at IS NULL
+           ORDER BY s.created_at DESC`
+        )
+        return rows.map((r: Record<string, any>) => ({
+          id: r.id as string,
+          name: r.name as string,
+          token: r.token as string,
+          state: r.state as 'active' | 'expiring' | 'expired' | 'limit',
+          protected: r.protected as boolean,
+          type: r.conditions > 0 ? ('rule' as const) : ('pinned' as const),
+          studies: r.pinned as number,
+          views: r.view_count as number,
+          maxViews: r.max_views as number | null,
+          expiresAt: r.expires_at ? new Date(r.expires_at).toISOString() : null,
+          owner: r.owner as string,
+        }))
+      },
+      // Set by `store` after a redirect so the list can open the "Link ready" dialog.
+      created: async () => {
+        const id = request.input('created')
+        if (typeof id !== 'string' || !UUID.test(id)) return null
+        const share = await Share.query()
+          .where('id', id)
+          .apply((s) => s.live())
+          .first()
+        return share
+          ? { id: share.id, name: share.name, token: share.token, protected: !!share.passwordHash }
+          : null
       },
     })
   }
 
-  async new({ session, inertia, request }: HttpContext) {
-    const preselect = String(request.input('caseStudy', '') ?? '')
-    return inertia.render('share_builder', {
-      mode: 'new',
-      share: {
-        id: null as string | null,
-        mode: 'selected' as 'selected' | 'rule',
-        selectedIds: preselect ? [preselect] : ([] as string[]),
-        rule: {
-          sectors: [] as string[],
-          industries: [] as string[],
-          keyBusinesses: [] as string[],
-          categories: [] as string[],
-          services: [] as string[],
-          clients: [] as string[],
-        },
-        recipientName: '',
-        company: '',
-        email: '',
-        requirePassword: false,
-        passwordSet: false,
-        expiresAt: null as string | null,
-        maxViews: null as number | null,
-        link: null as string | null,
-        createdAt: null as string | null,
-        views: 0,
-        expired: false,
-        expiredAt: null as string | null,
+  /** Engagement and controls for one share: access summary, visits, devices and contents. */
+  async show({ inertia, params, request, response }: HttpContext) {
+    if (!UUID.test(params.id)) return response.notFound()
+    const share = await this.#find(params.id, true)
+    if (!share) return response.notFound()
+
+    const page = Math.max(1, Number.parseInt(request.input('page', '1'), 10) || 1)
+    const rules = RULE_FIELDS.map((field) => ({
+      field,
+      ids: share[RELATIONS[field]].map((r) => r.id),
+    })).filter((r) => r.ids.length > 0)
+
+    return inertia.render('shares/show', {
+      share: async () => {
+        const { rows } = await db.rawQuery(
+          `SELECT ${SHARE_STATE_SQL} AS state, coalesce(u.name, u.email) AS owner
+           FROM share s JOIN app_user u ON u.id = s.created_by WHERE s.id = ?`,
+          [share.id]
+        )
+        return {
+          id: share.id,
+          name: share.name,
+          token: share.token,
+          state: rows[0].state as 'active' | 'expiring' | 'expired' | 'limit',
+          protected: !!share.passwordHash,
+          expiresAt: share.expiresAt ? share.expiresAt.toUTC().toISO() : null,
+          maxViews: share.maxViews,
+          viewCount: share.viewCount,
+          owner: rows[0].owner as string,
+          createdAt: share.createdAt.toISO()!,
+        }
       },
-      options: await pickerOptions(),
-      matchPreview: { count: 0, thumbs: [] as Array<{ id: string; url: string | null }> },
-      permissions: {
-        editable: true,
-        ownerName: null as string | null,
-        canUseFilters: canUseRuleFilters({ session }),
+      stats: async () => {
+        const { rows } = await db.rawQuery(
+          `SELECT count(*)::int AS views,
+                  count(DISTINCT ip_address)::int AS visitors,
+                  max(viewed_at) AS last_visit
+           FROM share_view WHERE share_id = ?`,
+          [share.id]
+        )
+        const r = rows[0]
+        return {
+          views: r.views as number,
+          visitors: r.visitors as number,
+          lastVisit: r.last_visit ? new Date(r.last_visit).toISOString() : null,
+        }
       },
+      series: () => service.series(share.id, 30),
+      devices: async () => {
+        const { rows } = await db.rawQuery(
+          `SELECT user_agent, count(*)::int AS n FROM share_view WHERE share_id = ? GROUP BY 1`,
+          [share.id]
+        )
+        const totals: Record<string, number> = { Desktop: 0, Mobile: 0, Tablet: 0 }
+        for (const r of rows) totals[parseAgent(r.user_agent).device] += r.n
+        return Object.entries(totals).map(([device, count]) => ({ device, count }))
+      },
+      visits: async () => {
+        const [rows, total] = await Promise.all([
+          db
+            .from('share_view')
+            .where('share_id', share.id)
+            .orderBy('viewed_at', 'desc')
+            .limit(VISITS_PER_PAGE)
+            .offset((page - 1) * VISITS_PER_PAGE)
+            .select('id', 'viewed_at', 'user_agent'),
+          db.from('share_view').where('share_id', share.id).count('* as n'),
+        ])
+        return {
+          page,
+          perPage: VISITS_PER_PAGE,
+          total: Number(total[0].n),
+          rows: rows.map((r: { id: string; viewed_at: Date; user_agent: string | null }) => ({
+            id: r.id,
+            at: new Date(r.viewed_at).toISOString(),
+            ...parseAgent(r.user_agent),
+          })),
+        }
+      },
+      contents: async () =>
+        rules.length > 0
+          ? {
+              kind: 'rule' as const,
+              rules: await service.ruleNames(rules),
+              ...(await service.matchPreview(rules)),
+            }
+          : {
+              kind: 'pinned' as const,
+              items: await service.studiesByIds(share.caseStudies.map((c) => c.id)),
+            },
     })
   }
 
-  async store({ auth, request, response, session, inertia }: HttpContext) {
-    const payload = await request.validateUsing(shareValidator)
-    // Employees may only share specific case studies — taxonomy/client
-    // filter rules are admin+.
-    if (payload.mode === 'rule' && !canUseRuleFilters({ session })) {
-      response.status(403)
-      return inertia.render('errors/forbidden', {
-        message: 'Only admins can share with filters. Pick specific case studies instead.',
-      })
-    }
-    const name = payload.recipientName || payload.company || 'Share'
-    let passwordHash: string | null = null
-    if (payload.requirePassword && payload.password)
-      passwordHash = await hash.make(payload.password)
-    let expiresAt: DateTime | null = null
-    if (payload.expiresAt) {
-      const parsed = DateTime.fromISO(payload.expiresAt)
-      if (parsed.isValid) expiresAt = parsed
-    }
-    const row = await ShareLink.create({
-      id: randomUUID(),
-      token: randomUUID(),
-      name,
-      recipientName: payload.recipientName || null,
-      recipientEmail: payload.email || null,
-      passwordHash,
-      expiresAt: expiresAt as any,
-      maxViews: payload.maxViews ?? null,
-      viewCount: 0,
-      revoked: false,
-      specificCaseStudyIds: payload.mode === 'selected' ? (payload.caseStudyIds ?? []) : [],
-      filterSectorIds: [],
-      filterIndustryIds: [],
-      filterKeyBusinessIds: [],
-      filterCategoryIds: [],
-      filterServiceIds: [],
-      filterClientIds: [],
-      createdBy: (auth.user as unknown as { id?: string | number })?.id
-        ? String((auth.user as unknown as { id: string | number }).id)
-        : null,
-    })
-    // Persist rule ids best-effort (names → ids) when rule mode is used.
-    if (payload.mode === 'rule' && payload.rule) {
-      const lookup = async (table: string, names?: string[]) => {
-        if (!names || names.length === 0) return []
-        const rows = await db.from(table).whereIn('name', names).select('id')
-        return rows.map((r) => String(r.id))
-      }
-      row.merge({
-        filterSectorIds: await lookup('sectors', payload.rule.sectors),
-        filterIndustryIds: await lookup('industries', payload.rule.industries),
-        filterKeyBusinessIds: await lookup('key_businesses', payload.rule.keyBusinesses),
-        filterCategoryIds: await lookup('work_categories', payload.rule.categories),
-        filterServiceIds: await lookup('services', payload.rule.services),
-        filterClientIds: await lookup('clients', payload.rule.clients),
-      })
-      await row.save()
-    }
-    session.flash('success', 'Share created')
-    return response.redirect(`/shares/${row.id}/edit`)
-  }
+  /** Pushes the expiry out by a week from whichever is later: the current expiry or now. */
+  async extend({ params, response, session, auth }: HttpContext) {
+    if (!UUID.test(params.id)) return response.notFound()
+    const share = await this.#find(params.id)
+    if (!share) return response.notFound()
 
-  async show({ inertia, params }: HttpContext) {
-    const id = String(params.id ?? '')
-    const s = (await ShareLink.find(id)) ?? (await ShareLink.findBy('token', id))
-    if (!s) return inertia.render('errors/not_found', { message: 'Share not found' })
-    const status = shareStatus(s.expiresAt, s.maxViews, s.viewCount)
-    const visits = await db
-      .from('share_views')
-      .where('share_link_id', s.id)
-      .orderBy('viewed_at', 'desc')
-      .limit(20)
-    const owner = s.createdBy ? await DirectoryUser.find(s.createdBy).catch(() => null) : null
-    return inertia.render('share_detail', {
-      share: {
-        id: s.id,
-        recipient: s.recipientName ?? s.name,
-        company: s.recipientEmail ?? '',
-        token: s.token,
-        tokenSuffix: s.token.slice(-6),
-        link: `/s/${s.token}`,
-        status: status as StaffShareStatus,
-        hasPassword: !!s.passwordHash,
-        expiresAt: s.expiresAt ? s.expiresAt.toISO() : null,
-        expiresRelative: s.expiresAt ? relativeFromISO(s.expiresAt.toISO()!) : null,
-        maxViews: s.maxViews,
-        createdAt: s.createdAt.toISO()!,
-        createdRelative: relativeFromISO(s.createdAt.toISO()!),
-        editable: true,
-        ownerName: owner?.name ?? null,
-      },
-      kpis: {
-        totalViews: s.viewCount,
-        lastViewedAt: visits[0] ? new Date(visits[0].viewed_at).toISOString() : null,
-        lastViewedRelative: visits[0]
-          ? relativeFromISO(new Date(visits[0].viewed_at).toISOString())
-          : 'Never',
-        viewsRemaining:
-          s.maxViews === null ? 'Unlimited' : String(Math.max(0, s.maxViews - s.viewCount)),
-        expiresIn: s.expiresAt ? relativeFromISO(s.expiresAt.toISO()!) : 'No expiry',
-      },
-      viewsSeries: { labels: [] as string[], values: [] as number[], total: s.viewCount },
-      visits: visits.map((v: any) => ({
-        id: String(v.id),
-        viewedAt: new Date(v.viewed_at).toISOString(),
-        viewedRelative: relativeFromISO(new Date(v.viewed_at).toISOString()),
-        maskedIp: v.ip ? `${String(v.ip).slice(0, 3)}•••` : '—',
-        device: v.user_agent ?? 'Unknown',
-      })),
+    const base =
+      share.expiresAt && share.expiresAt > DateTime.now() ? share.expiresAt : DateTime.now()
+    share.merge({
+      expiresAt: base.toUTC().plus({ days: 7 }).endOf('day'),
+      updatedBy: auth.user!.id,
     })
-  }
+    await share.save()
 
-  async edit({ session, inertia, params }: HttpContext) {
-    const id = String(params.id ?? '')
-    const s = await ShareLink.find(id)
-    if (!s) return inertia.render('errors/not_found', { message: 'Share not found' })
-    const isRule =
-      (s.filterSectorIds?.length ?? 0) > 0 ||
-      (s.filterIndustryIds?.length ?? 0) > 0 ||
-      (s.filterKeyBusinessIds?.length ?? 0) > 0 ||
-      (s.filterCategoryIds?.length ?? 0) > 0 ||
-      (s.filterServiceIds?.length ?? 0) > 0 ||
-      (s.filterClientIds?.length ?? 0) > 0
-    const nameOf = async (table: string, ids?: string[] | null) => {
-      if (!ids || ids.length === 0) return []
-      const rows = await db.from(table).whereIn('id', ids).select('name')
-      return rows.map((r) => r.name)
-    }
-    return inertia.render('share_builder', {
-      mode: 'edit',
-      share: {
-        id: s.id,
-        mode: isRule ? ('rule' as const) : ('selected' as const),
-        selectedIds: s.specificCaseStudyIds ?? [],
-        rule: {
-          sectors: await nameOf('sectors', s.filterSectorIds),
-          industries: await nameOf('industries', s.filterIndustryIds),
-          keyBusinesses: await nameOf('key_businesses', s.filterKeyBusinessIds),
-          categories: await nameOf('work_categories', s.filterCategoryIds),
-          services: await nameOf('services', s.filterServiceIds),
-          clients: await nameOf('clients', s.filterClientIds),
-        },
-        recipientName: s.recipientName ?? s.name,
-        company: '',
-        email: s.recipientEmail ?? '',
-        requirePassword: !!s.passwordHash,
-        passwordSet: !!s.passwordHash,
-        expiresAt: s.expiresAt ? s.expiresAt.toISO() : null,
-        maxViews: s.maxViews,
-        link: `/s/${s.token}`,
-        createdAt: s.createdAt.toISO()!,
-        views: s.viewCount,
-        expired: shareStatus(s.expiresAt, s.maxViews, s.viewCount) === 'expired',
-        expiredAt: s.expiresAt ? s.expiresAt.toISO() : null,
-      },
-      options: await pickerOptions(),
-      matchPreview: { count: 0, thumbs: [] as Array<{ id: string; url: string | null }> },
-      permissions: {
-        editable: true,
-        ownerName: null as string | null,
-        canUseFilters: canUseRuleFilters({ session }),
-      },
-    })
-  }
-
-  async update({ request, response, session, params, inertia }: HttpContext) {
-    const payload = await request.validateUsing(shareValidator)
-    if (payload.mode === 'rule' && !canUseRuleFilters({ session })) {
-      response.status(403)
-      return inertia.render('errors/forbidden', {
-        message: 'Only admins can share with filters. Pick specific case studies instead.',
-      })
-    }
-    const s = await ShareLink.find(String(params.id ?? ''))
-    if (!s) {
-      session.flash('error', 'Share not found')
-      return response.redirect('/shares')
-    }
-    s.merge({
-      recipientName: payload.recipientName ?? s.recipientName,
-      recipientEmail: payload.email ?? s.recipientEmail,
-      maxViews: payload.maxViews ?? s.maxViews,
-      specificCaseStudyIds:
-        payload.mode === 'selected'
-          ? (payload.caseStudyIds ?? s.specificCaseStudyIds)
-          : s.specificCaseStudyIds,
-    })
-    if (payload.requirePassword && payload.password)
-      s.passwordHash = await hash.make(payload.password)
-    if (payload.requirePassword === false) s.passwordHash = null
-    await s.save()
-    session.flash('success', 'Share updated')
+    session.flash('success', `Extended “${share.name}” by 7 days.`)
     return response.redirect().back()
   }
 
-  async destroy({ response, session, params }: HttpContext) {
-    const s = await ShareLink.find(String(params.id ?? ''))
-    if (s) {
-      s.revoked = true
-      await s.save()
-    }
-    session.flash('success', 'Share deleted')
-    return response.redirect('/shares')
+  async create({ inertia, request }: HttpContext) {
+    return inertia.render('shares/form', {
+      share: null,
+      options: () => this.#options(),
+      matchPreview: () => service.matchPreview(parseRules(request.input('rules'))),
+    })
   }
 
-  async preview({ session, request, response }: HttpContext) {
-    if (!canUseRuleFilters({ session })) {
-      return response.forbidden({ message: 'Only admins can preview filter rules' })
-    }
-    const ids = async (table: string, names: string[]) => {
-      if (names.length === 0) return []
-      const rows = await db.from(table).whereIn('name', names).select('id')
-      return rows.map((r) => String(r.id))
-    }
-    const rule = request.only([
-      'sectors',
-      'industries',
-      'keyBusinesses',
-      'categories',
-      'services',
-      'clients',
-    ]) as Record<string, string[] | undefined>
-    let query = CaseStudy.query().where('status', 'published')
-    if (rule.categories?.length) {
-      const cids = await ids('work_categories', rule.categories)
-      const links = await db
-        .from('case_study_categories')
-        .whereIn('category_id', cids.length ? cids : ['__none__'])
-        .select('case_study_id as id')
-      query = query.whereIn('id', [...new Set(links.map((r) => String(r.id))), '__none__'])
-    }
-    if (rule.services?.length) {
-      const sids = await ids('services', rule.services)
-      const links = await db
-        .from('case_study_services')
-        .whereIn('service_id', sids.length ? sids : ['__none__'])
-        .select('case_study_id as id')
-      query = query.whereIn('id', [...new Set(links.map((r) => String(r.id))), '__none__'])
-    }
-    const matches = await query.limit(7)
-    return response.json({
-      count: matches.length,
-      thumbs: matches.slice(0, 6).map((m) => ({ id: m.id, url: m.heroImageUrl })),
+  async edit({ inertia, params, request, response }: HttpContext) {
+    if (!UUID.test(params.id)) return response.notFound()
+    const share = await this.#find(params.id, true)
+    if (!share) return response.notFound()
+
+    const rules = RULE_FIELDS.map((field) => ({
+      field,
+      ids: share[RELATIONS[field]].map((r) => r.id),
+    })).filter((r) => r.ids.length > 0)
+
+    return inertia.render('shares/form', {
+      share: {
+        id: share.id,
+        name: share.name,
+        token: share.token,
+        mode: rules.length > 0 ? 'rule' : 'pick',
+        caseStudyIds: share.caseStudies.map((c) => c.id),
+        rules,
+        protected: !!share.passwordHash,
+        expiresAt: share.expiresAt ? share.expiresAt.toUTC().toISODate() : null,
+        expired: !!share.expiresAt && share.expiresAt <= DateTime.now(),
+        maxViews: share.maxViews,
+        viewCount: share.viewCount,
+      },
+      options: () => this.#options(),
+      matchPreview: () =>
+        service.matchPreview(request.input('rules') ? parseRules(request.input('rules')) : rules),
     })
+  }
+
+  async store({ request, response, session, auth }: HttpContext) {
+    const payload = await request.validateUsing(shareValidator)
+    const failed = await this.#check(payload, null)
+    if (failed) {
+      session.flash('inputErrorsBag', failed)
+      return response.redirect().back()
+    }
+
+    const share = await db.transaction(async (trx) => {
+      const row = new Share()
+      row.useTransaction(trx)
+      row.merge({
+        name: payload.name,
+        token: generateToken(),
+        passwordHash: payload.passwordAction === 'set' ? await hash.make(payload.password!) : null,
+        expiresAt: payload.expiresAt ? endOfDay(payload.expiresAt) : null,
+        maxViews: payload.maxViews ?? null,
+        createdBy: auth.user!.id,
+        updatedBy: auth.user!.id,
+      })
+      await row.save()
+      await this.#syncTargets(row, payload)
+      return row
+    })
+
+    session.flash('success', `Share “${share.name}” created.`)
+    return response.redirect().toPath(`/shares?created=${share.id}`)
+  }
+
+  async update({ params, request, response, session, auth }: HttpContext) {
+    if (!UUID.test(params.id)) return response.notFound()
+    const share = await this.#find(params.id)
+    if (!share) return response.notFound()
+
+    const payload = await request.validateUsing(shareValidator)
+    const failed = await this.#check(payload, share)
+    if (failed) {
+      session.flash('inputErrorsBag', failed)
+      return response.redirect().back()
+    }
+
+    await db.transaction(async (trx) => {
+      share.useTransaction(trx)
+      share.merge({
+        name: payload.name,
+        expiresAt: payload.expiresAt ? endOfDay(payload.expiresAt) : null,
+        maxViews: payload.maxViews ?? null,
+        updatedBy: auth.user!.id,
+        ...(payload.passwordAction === 'set' && {
+          passwordHash: await hash.make(payload.password!),
+        }),
+        ...(payload.passwordAction === 'remove' && { passwordHash: null }),
+      })
+      await share.save()
+      await this.#syncTargets(share, payload)
+    })
+
+    session.flash('success', `Share “${share.name}” saved.`)
+    return response.redirect().toPath('/shares')
+  }
+
+  /** Revoking soft-deletes the share, which is what makes the public token stop resolving. */
+  async destroy({ params, response, session, auth }: HttpContext) {
+    if (!UUID.test(params.id)) return response.notFound()
+    const share = await this.#find(params.id)
+    if (!share) return response.notFound()
+
+    share.merge({ deletedAt: DateTime.now(), updatedBy: auth.user!.id })
+    await share.save()
+
+    session.flash('success', `Link “${share.name}” revoked.`)
+    // Not `back()`: when revoked from the detail page that URL no longer exists.
+    return response.redirect().toPath('/shares')
+  }
+
+  /* ------------------------------------------------------------------------ */
+
+  async #find(id: string, withTargets = false) {
+    const q = Share.query()
+      .where('id', id)
+      .apply((s) => s.live())
+    if (withTargets) {
+      for (const relation of ['caseStudies', ...Object.values(RELATIONS)] as const) {
+        q.preload(relation, (r) => r.select('id'))
+      }
+    }
+    return q.first()
+  }
+
+  /**
+   * Checks the parts the validator cannot: that the selection is non-empty, still exists
+   * and is published, that the date is in the future, and that a password was supplied.
+   * Returns field errors, or null when the payload is good.
+   */
+  async #check(p: Payload, existing: Share | null): Promise<Record<string, string> | null> {
+    const errors: Record<string, string> = {}
+
+    if (p.mode === 'pick') {
+      const ids = [...new Set(p.caseStudyIds)]
+      if (!ids.length) errors.caseStudyIds = 'Select at least one case study.'
+      else if ((await service.publishedCount(ids)) !== ids.length) {
+        errors.caseStudyIds = 'A selected case study is no longer published. Reload and try again.'
+      }
+    } else {
+      if (!p.rules.length) errors.rules = 'Add at least one condition.'
+      else {
+        for (const rule of p.rules) {
+          const ids = [...new Set(rule.ids)]
+          if ((await service.existingCount(rule.field, ids)) !== ids.length) {
+            errors.rules = 'A selected value no longer exists. Reload and try again.'
+          }
+        }
+        if (!errors.rules && (await service.matchCount(p.rules as Rule[])) === 0) {
+          errors.rules = 'No published case study matches these conditions yet.'
+        }
+      }
+    }
+
+    if (p.passwordAction === 'set' && !p.password) errors.password = 'Enter a password.'
+    if (p.passwordAction === 'keep' && !existing?.passwordHash) {
+      errors.password = 'Enter a password.'
+    }
+
+    if (p.expiresAt) {
+      const end = endOfDay(p.expiresAt)
+      if (!end.isValid) errors.expiresAt = 'Choose a valid date.'
+      else if (end <= DateTime.now()) errors.expiresAt = 'Choose a date in the future.'
+    }
+
+    return Object.keys(errors).length ? errors : null
+  }
+
+  /** One mode wins: switching from a live rule to a pinned list clears the rule, and vice versa. */
+  async #syncTargets(share: Share, p: Payload) {
+    const pinned = p.mode === 'pick' ? [...new Set(p.caseStudyIds)] : []
+    await share.related('caseStudies').sync(pinned)
+
+    for (const field of RULE_FIELDS) {
+      const ids =
+        p.mode === 'rule' ? [...new Set(p.rules.find((r) => r.field === field)?.ids ?? [])] : []
+      await share.related(RELATIONS[field]).sync(ids)
+    }
+  }
+
+  async #options() {
+    const [sectors, industries, keyBusinesses, workCategories, services, clients] =
+      await Promise.all([
+        db.rawQuery('SELECT id, name FROM sector ORDER BY name'),
+        db.rawQuery(
+          `SELECT i.id, s.name || ' › ' || i.name AS name
+           FROM industry i JOIN sector s ON s.id = i.sector_id ORDER BY s.name, i.name`
+        ),
+        db.rawQuery(
+          `SELECT kb.id, i.name || ' › ' || kb.name AS name
+           FROM key_business kb JOIN industry i ON i.id = kb.industry_id ORDER BY i.name, kb.name`
+        ),
+        db.rawQuery('SELECT id, name FROM work_category ORDER BY name'),
+        db.rawQuery('SELECT id, name FROM service ORDER BY name'),
+        db.rawQuery('SELECT id, name FROM client WHERE deleted_at IS NULL ORDER BY name'),
+      ])
+    const rows = (r: { rows: { id: string; name: string }[] }) => r.rows
+
+    return {
+      studies: await service.publishedStudies(),
+      rule: {
+        sector: rows(sectors),
+        industry: rows(industries),
+        keyBusiness: rows(keyBusinesses),
+        workCategory: rows(workCategories),
+        service: rows(services),
+        client: rows(clients),
+      },
+    }
   }
 }

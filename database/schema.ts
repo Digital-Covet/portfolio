@@ -7,132 +7,449 @@
 import { BaseModel, column } from '@adonisjs/lucid/orm'
 import { DateTime } from 'luxon'
 
-export class BusinessModelSchema extends BaseModel {
-  static $columns = ['createdAt', 'id', 'name', 'slug', 'updatedAt'] as const
-  $columns = BusinessModelSchema.$columns
+export class AppUserSchema extends BaseModel {
+  static $columns = ['createdAt', 'deletedAt', 'departmentId', 'email', 'id', 'image', 'lastSyncedAt', 'name', 'role', 'updatedAt'] as const
+  $columns = AppUserSchema.$columns
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
-  @column({ isPrimary: true })
-  declare id: number
-  @column()
-  declare name: string
-  @column()
-  declare slug: string
-  @column.dateTime({ autoCreate: true, autoUpdate: true })
-  declare updatedAt: DateTime | null
-}
-
-export class IndustrySchema extends BaseModel {
-  static $columns = ['createdAt', 'id', 'name', 'sectorId', 'slug', 'updatedAt'] as const
-  $columns = IndustrySchema.$columns
-  @column.dateTime({ autoCreate: true })
-  declare createdAt: DateTime
-  @column({ isPrimary: true })
-  declare id: number
-  @column()
-  declare name: string
-  @column()
-  declare sectorId: number
-  @column()
-  declare slug: string
-  @column.dateTime({ autoCreate: true, autoUpdate: true })
-  declare updatedAt: DateTime | null
-}
-
-export class KeyBusinessSchema extends BaseModel {
-  static $columns = ['createdAt', 'id', 'industryId', 'name', 'slug', 'updatedAt'] as const
-  $columns = KeyBusinessSchema.$columns
-  @column.dateTime({ autoCreate: true })
-  declare createdAt: DateTime
-  @column({ isPrimary: true })
-  declare id: number
-  @column()
-  declare industryId: number
-  @column()
-  declare name: string
-  @column()
-  declare slug: string
-  @column.dateTime({ autoCreate: true, autoUpdate: true })
-  declare updatedAt: DateTime | null
-}
-
-export class SectorSchema extends BaseModel {
-  static $columns = ['createdAt', 'id', 'name', 'slug', 'updatedAt'] as const
-  $columns = SectorSchema.$columns
-  @column.dateTime({ autoCreate: true })
-  declare createdAt: DateTime
-  @column({ isPrimary: true })
-  declare id: number
-  @column()
-  declare name: string
-  @column()
-  declare slug: string
-  @column.dateTime({ autoCreate: true, autoUpdate: true })
-  declare updatedAt: DateTime | null
-}
-
-export class ServiceSchema extends BaseModel {
-  static $columns = ['createdAt', 'id', 'name', 'slug', 'updatedAt'] as const
-  $columns = ServiceSchema.$columns
-  @column.dateTime({ autoCreate: true })
-  declare createdAt: DateTime
-  @column({ isPrimary: true })
-  declare id: number
-  @column()
-  declare name: string
-  @column()
-  declare slug: string
-  @column.dateTime({ autoCreate: true, autoUpdate: true })
-  declare updatedAt: DateTime | null
-}
-
-export class UserSchema extends BaseModel {
-  static $columns = [
-    'avatarUrl',
-    'createdAt',
-    'departmentId',
-    'email',
-    'emailVerified',
-    'fullName',
-    'iamSub',
-    'id',
-    'password',
-    'updatedAt',
-  ] as const
-  $columns = UserSchema.$columns
-  @column()
-  declare avatarUrl: string | null
-  @column.dateTime({ autoCreate: true })
-  declare createdAt: DateTime
+  @column.dateTime()
+  declare deletedAt: DateTime | null
   @column()
   declare departmentId: string | null
   @column()
   declare email: string
-  @column()
-  declare emailVerified: boolean
-  @column()
-  declare fullName: string | null
-  @column()
-  declare iamSub: string | null
   @column({ isPrimary: true })
-  declare id: number
-  @column({ serializeAs: null })
-  declare password: string | null
+  declare id: string
+  @column()
+  declare image: string | null
+  @column.dateTime()
+  declare lastSyncedAt: DateTime | null
+  @column()
+  declare name: string | null
+  @column()
+  declare role: 'employee' | 'admin' | 'superadmin'
   @column.dateTime({ autoCreate: true, autoUpdate: true })
-  declare updatedAt: DateTime | null
+  declare updatedAt: DateTime
+}
+
+export class BusinessModelSchema extends BaseModel {
+  static $columns = ['createdAt', 'id', 'name', 'updatedAt'] as const
+  $columns = BusinessModelSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare name: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
+export class CaseStudySchema extends BaseModel {
+  static $columns = ['clientId', 'contentMarkdown', 'createdAt', 'createdBy', 'deletedAt', 'departmentId', 'heroFileId', 'id', 'slug', 'status', 'title', 'updatedAt', 'updatedBy'] as const
+  $columns = CaseStudySchema.$columns
+  @column()
+  declare clientId: string
+  @column()
+  declare contentMarkdown: string | null
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare createdBy: string
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column()
+  declare departmentId: string
+  @column()
+  declare heroFileId: string | null
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare slug: string
+  @column()
+  declare status: 'draft' | 'published' | 'archived'
+  @column()
+  declare title: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+  @column()
+  declare updatedBy: string | null
+}
+
+export class CaseStudyAttachmentSchema extends BaseModel {
+  static $columns = ['caseStudyId', 'createdAt', 'fileId'] as const
+  $columns = CaseStudyAttachmentSchema.$columns
+  @column({ isPrimary: true })
+  declare caseStudyId: string
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare fileId: string
+}
+
+export class CaseStudyBusinessModelSchema extends BaseModel {
+  static $columns = ['businessModelId', 'caseStudyId'] as const
+  $columns = CaseStudyBusinessModelSchema.$columns
+  @column()
+  declare businessModelId: string
+  @column({ isPrimary: true })
+  declare caseStudyId: string
+}
+
+export class CaseStudyImageSchema extends BaseModel {
+  static $columns = ['caseStudyId', 'createdAt', 'fileId', 'sortOrder', 'updatedAt'] as const
+  $columns = CaseStudyImageSchema.$columns
+  @column({ isPrimary: true })
+  declare caseStudyId: string
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare fileId: string
+  @column()
+  declare sortOrder: number
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
+export class CaseStudyKeyBusinessSchema extends BaseModel {
+  static $columns = ['caseStudyId', 'keyBusinessId'] as const
+  $columns = CaseStudyKeyBusinessSchema.$columns
+  @column({ isPrimary: true })
+  declare caseStudyId: string
+  @column()
+  declare keyBusinessId: string
+}
+
+export class CaseStudyMetricSchema extends BaseModel {
+  static $columns = ['caseStudyId', 'createdAt', 'id', 'label', 'sortOrder', 'updatedAt', 'value'] as const
+  $columns = CaseStudyMetricSchema.$columns
+  @column()
+  declare caseStudyId: string
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare label: string
+  @column()
+  declare sortOrder: number
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+  @column()
+  declare value: string
+}
+
+export class CaseStudyServiceSchema extends BaseModel {
+  static $columns = ['caseStudyId', 'serviceId'] as const
+  $columns = CaseStudyServiceSchema.$columns
+  @column({ isPrimary: true })
+  declare caseStudyId: string
+  @column()
+  declare serviceId: string
+}
+
+export class CaseStudyTestimonialSchema extends BaseModel {
+  static $columns = ['authorName', 'authorTitle', 'caseStudyId', 'createdAt', 'id', 'quote', 'sortOrder', 'updatedAt'] as const
+  $columns = CaseStudyTestimonialSchema.$columns
+  @column()
+  declare authorName: string
+  @column()
+  declare authorTitle: string | null
+  @column()
+  declare caseStudyId: string
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare quote: string
+  @column()
+  declare sortOrder: number
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
+export class CaseStudyVideoSchema extends BaseModel {
+  static $columns = ['caseStudyId', 'createdAt', 'id', 'sortOrder', 'updatedAt', 'url'] as const
+  $columns = CaseStudyVideoSchema.$columns
+  @column()
+  declare caseStudyId: string
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare sortOrder: number
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+  @column()
+  declare url: string
+}
+
+export class CaseStudyWorkCategorySchema extends BaseModel {
+  static $columns = ['caseStudyId', 'workCategoryId'] as const
+  $columns = CaseStudyWorkCategorySchema.$columns
+  @column({ isPrimary: true })
+  declare caseStudyId: string
+  @column()
+  declare workCategoryId: string
+}
+
+export class ClientSchema extends BaseModel {
+  static $columns = ['createdAt', 'createdBy', 'deletedAt', 'id', 'logoFileId', 'name', 'updatedAt', 'updatedBy'] as const
+  $columns = ClientSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare createdBy: string
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare logoFileId: string | null
+  @column()
+  declare name: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+  @column()
+  declare updatedBy: string | null
+}
+
+export class ClientKeyBusinessSchema extends BaseModel {
+  static $columns = ['clientId', 'keyBusinessId'] as const
+  $columns = ClientKeyBusinessSchema.$columns
+  @column({ isPrimary: true })
+  declare clientId: string
+  @column()
+  declare keyBusinessId: string
+}
+
+export class DepartmentSchema extends BaseModel {
+  static $columns = ['createdAt', 'id', 'name', 'updatedAt'] as const
+  $columns = DepartmentSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare name: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
+export class FileSchema extends BaseModel {
+  static $columns = ['bucket', 'createdAt', 'id', 'mimeType', 'originalName', 'sizeBytes', 'storagePath', 'uploadedBy', 'visibility'] as const
+  $columns = FileSchema.$columns
+  @column()
+  declare bucket: string
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare mimeType: string
+  @column()
+  declare originalName: string
+  @column()
+  declare sizeBytes: bigint | number
+  @column()
+  declare storagePath: string
+  @column()
+  declare uploadedBy: string
+  @column()
+  declare visibility: 'public' | 'authenticated'
+}
+
+export class IndustrySchema extends BaseModel {
+  static $columns = ['createdAt', 'id', 'name', 'sectorId', 'updatedAt'] as const
+  $columns = IndustrySchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare name: string
+  @column()
+  declare sectorId: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
+export class KeyBusinessSchema extends BaseModel {
+  static $columns = ['createdAt', 'id', 'industryId', 'name', 'updatedAt'] as const
+  $columns = KeyBusinessSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare industryId: string
+  @column()
+  declare name: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
+export class SectorSchema extends BaseModel {
+  static $columns = ['createdAt', 'id', 'name', 'updatedAt'] as const
+  $columns = SectorSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare name: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
+export class ServiceSchema extends BaseModel {
+  static $columns = ['createdAt', 'id', 'name', 'updatedAt'] as const
+  $columns = ServiceSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare name: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
+export class ShareSchema extends BaseModel {
+  static $columns = ['createdAt', 'createdBy', 'deletedAt', 'expiresAt', 'id', 'maxViews', 'name', 'passwordHash', 'recipientCompany', 'recipientEmail', 'recipientName', 'token', 'updatedAt', 'updatedBy', 'viewCount'] as const
+  $columns = ShareSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare createdBy: string
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column.dateTime()
+  declare expiresAt: DateTime | null
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare maxViews: number | null
+  @column()
+  declare name: string
+  @column()
+  declare passwordHash: string | null
+  @column()
+  declare recipientCompany: string | null
+  @column()
+  declare recipientEmail: string | null
+  @column()
+  declare recipientName: string | null
+  @column()
+  declare token: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+  @column()
+  declare updatedBy: string | null
+  @column()
+  declare viewCount: number
+}
+
+export class ShareCaseStudySchema extends BaseModel {
+  static $columns = ['caseStudyId', 'shareId'] as const
+  $columns = ShareCaseStudySchema.$columns
+  @column()
+  declare caseStudyId: string
+  @column({ isPrimary: true })
+  declare shareId: string
+}
+
+export class ShareClientSchema extends BaseModel {
+  static $columns = ['clientId', 'shareId'] as const
+  $columns = ShareClientSchema.$columns
+  @column()
+  declare clientId: string
+  @column({ isPrimary: true })
+  declare shareId: string
+}
+
+export class ShareIndustrySchema extends BaseModel {
+  static $columns = ['industryId', 'shareId'] as const
+  $columns = ShareIndustrySchema.$columns
+  @column()
+  declare industryId: string
+  @column({ isPrimary: true })
+  declare shareId: string
+}
+
+export class ShareKeyBusinessSchema extends BaseModel {
+  static $columns = ['keyBusinessId', 'shareId'] as const
+  $columns = ShareKeyBusinessSchema.$columns
+  @column()
+  declare keyBusinessId: string
+  @column({ isPrimary: true })
+  declare shareId: string
+}
+
+export class ShareSectorSchema extends BaseModel {
+  static $columns = ['sectorId', 'shareId'] as const
+  $columns = ShareSectorSchema.$columns
+  @column()
+  declare sectorId: string
+  @column({ isPrimary: true })
+  declare shareId: string
+}
+
+export class ShareServiceSchema extends BaseModel {
+  static $columns = ['serviceId', 'shareId'] as const
+  $columns = ShareServiceSchema.$columns
+  @column()
+  declare serviceId: string
+  @column({ isPrimary: true })
+  declare shareId: string
+}
+
+export class ShareUnlockAttemptSchema extends BaseModel {
+  static $columns = ['attempts', 'key', 'resetAt'] as const
+  $columns = ShareUnlockAttemptSchema.$columns
+  @column()
+  declare attempts: number
+  @column({ isPrimary: true })
+  declare key: string
+  @column.dateTime()
+  declare resetAt: DateTime
+}
+
+export class ShareViewSchema extends BaseModel {
+  static $columns = ['id', 'ipAddress', 'shareId', 'userAgent', 'viewedAt'] as const
+  $columns = ShareViewSchema.$columns
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare ipAddress: string | null
+  @column()
+  declare shareId: string
+  @column()
+  declare userAgent: string | null
+  @column.dateTime()
+  declare viewedAt: DateTime
+}
+
+export class ShareWorkCategorySchema extends BaseModel {
+  static $columns = ['shareId', 'workCategoryId'] as const
+  $columns = ShareWorkCategorySchema.$columns
+  @column({ isPrimary: true })
+  declare shareId: string
+  @column()
+  declare workCategoryId: string
 }
 
 export class WorkCategorySchema extends BaseModel {
-  static $columns = ['createdAt', 'id', 'name', 'slug', 'updatedAt'] as const
+  static $columns = ['createdAt', 'id', 'name', 'updatedAt'] as const
   $columns = WorkCategorySchema.$columns
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
   @column({ isPrimary: true })
-  declare id: number
+  declare id: string
   @column()
   declare name: string
-  @column()
-  declare slug: string
   @column.dateTime({ autoCreate: true, autoUpdate: true })
-  declare updatedAt: DateTime | null
+  declare updatedAt: DateTime
 }

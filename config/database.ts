@@ -2,19 +2,64 @@ import app from '@adonisjs/core/services/app'
 import env from '#start/env'
 import { defineConfig } from '@adonisjs/lucid'
 
+const afterCreate = (conn: any, done: (err: Error | null, conn: any) => void) => {
+  conn.query(`SET timezone='UTC';`, (err: Error) => done(err, conn))
+}
+
 const dbConfig = defineConfig({
   /**
    * Default connection used for all queries.
-   * Supabase Postgres is primary; sqlite remains for local fallback and
-   * for the test suite. Supabase tables are managed externally — do not
-   * run migrations against it by default. Sanctioned exception:
-   * `1761885935171_drop_iam_authz_columns_from_users` (IAM-only authz
-   * cleanup) is meant to run against Supabase Postgres via DIRECT_URL:
-   *   DATABASE_URL="<DIRECT_URL>" node ace migration:run
+   * Runtime uses the Supabase transaction-mode pooler (6543).
+   * Run migrations/DDL via the session-mode pooler:
+   * `node ace migration:run --connection=postgres_direct`
    */
-  connection: app.inTest ? 'sqlite' : 'postgres',
+  connection: 'postgres',
 
   connections: {
+    /**
+     * PostgreSQL via Supabase shared poolers.
+     * Runtime: transaction-mode pooler (6543, ?pgbouncer=true).
+     */
+    postgres: {
+      client: 'pg',
+      connection: {
+        connectionString: env.get('DATABASE_URL'),
+        ssl: { rejectUnauthorized: false },
+      },
+      pool: { min: 0, max: 10, acquireTimeoutMillis: 60_000, afterCreate },
+      migrations: {
+        naturalSort: true,
+        paths: ['database/migrations'],
+      },
+      schemaGeneration: {
+        enabled: true,
+        rulesPaths: ['./database/schema_rules.js'],
+      },
+      debug: app.inDev,
+    },
+
+    /**
+     * Direct session-mode pooler (5432). Migrations and DDL.
+     * Usage: `node ace migration:run --connection=postgres_direct`
+     */
+    postgres_direct: {
+      client: 'pg',
+      connection: {
+        connectionString: env.get('DIRECT_URL'),
+        ssl: { rejectUnauthorized: false },
+      },
+      pool: { min: 0, max: 5, acquireTimeoutMillis: 60_000, afterCreate },
+      migrations: {
+        naturalSort: true,
+        paths: ['database/migrations'],
+      },
+      schemaGeneration: {
+        enabled: true,
+        rulesPaths: ['./database/schema_rules.js'],
+      },
+      debug: app.inDev,
+    },
+
     /**
      * SQLite connection (default).
      */
@@ -52,27 +97,24 @@ const dbConfig = defineConfig({
     },
 
     /**
-     * PostgreSQL connection (Supabase).
-     * Runtime uses DATABASE_URL (6543 transaction pooler, IPv4).
-     * For migrations / db:inspect use DIRECT_URL (5432 session mode):
-     *   DATABASE_URL="<DIRECT_URL>" node ace migration:run
+     * PostgreSQL connection.
+     * Install package to switch: npm install pg
      */
-    postgres: {
-      client: 'pg',
-      connection: {
-        connectionString: env.get('DATABASE_URL'),
-        ssl: { rejectUnauthorized: false },
-      },
-      pool: {
-        min: 0,
-        max: 10,
-      },
-      migrations: {
-        naturalSort: true,
-        paths: ['database/migrations'],
-      },
-      debug: app.inDev,
-    },
+    // pg: {
+    //   client: 'pg',
+    //   connection: {
+    //     host: env.get('DB_HOST'),
+    //     port: env.get('DB_PORT'),
+    //     user: env.get('DB_USER'),
+    //     password: env.get('DB_PASSWORD'),
+    //     database: env.get('DB_DATABASE'),
+    //   },
+    //   migrations: {
+    //     naturalSort: true,
+    //     paths: ['database/migrations'],
+    //   },
+    //   debug: app.inDev,
+    // },
 
     /**
      * MySQL / MariaDB connection.

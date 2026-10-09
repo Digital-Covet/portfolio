@@ -36,3 +36,9 @@ yarn-error.log
 
 # Platform specific
 .DS_Store
+
+# Agent tooling
+.claude/scheduled_tasks.lock
+
+# TypeScript incremental build info
+*.tsbuildinfo

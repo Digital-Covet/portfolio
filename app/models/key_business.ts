@@ -1,27 +1,19 @@
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
-import type { BelongsTo } from '@adonisjs/lucid/types/relations'
-import { DateTime } from 'luxon'
+import { KeyBusinessSchema } from '#database/schema'
+import { belongsTo, manyToMany } from '@adonisjs/lucid/orm'
+import type { BelongsTo, ManyToMany } from '@adonisjs/lucid/types/relations'
 import Industry from '#models/industry'
+import Client from '#models/client'
+import CaseStudy from '#models/case_study'
 
-/**
- * Supabase `key_businesses` table: id (text), name, industry_id (nullable), created_at.
- */
-export default class KeyBusiness extends BaseModel {
-  static connection = 'postgres'
-  static table = 'key_businesses'
+export default class KeyBusiness extends KeyBusinessSchema {
+  static table = 'key_business'
 
-  @column({ isPrimary: true })
-  declare id: string
-
-  @column({ columnName: 'industry_id' })
-  declare industryId: string | null
-
-  @column()
-  declare name: string
-
-  @column.dateTime({ autoCreate: true, columnName: 'created_at' })
-  declare createdAt: DateTime
-
-  @belongsTo(() => Industry, { foreignKey: 'industryId' })
+  @belongsTo(() => Industry)
   declare industry: BelongsTo<typeof Industry>
+
+  @manyToMany(() => Client, { pivotTable: 'client_key_business' })
+  declare clients: ManyToMany<typeof Client>
+
+  @manyToMany(() => CaseStudy, { pivotTable: 'case_study_key_business' })
+  declare caseStudies: ManyToMany<typeof CaseStudy>
 }

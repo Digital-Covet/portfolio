@@ -1,36 +1,27 @@
-import { useEffect, useState } from 'react'
-import { toast, Toaster } from 'sonner'
-import { router, usePage } from '@inertiajs/react'
-import { CircleAlert, CircleCheck } from 'lucide-react'
+import { useEffect } from 'react'
+import { usePage } from '@inertiajs/react'
+import { Toaster, toast } from 'sonner'
 
+/** Bridges server flash messages (success / error) into toasts, bottom-right. */
 export default function FlashToasts() {
   const { flash } = usePage()
-  const [position, setPosition] = useState<'bottom-right' | 'bottom-center'>('bottom-right')
 
   useEffect(() => {
-    const mq = window.matchMedia('(max-width: 767px)')
-    const update = () => setPosition(mq.matches ? 'bottom-center' : 'bottom-right')
-    update()
-    mq.addEventListener('change', update)
-    return () => mq.removeEventListener('change', update)
-  }, [])
-
-  useEffect(() => {
-    return router.on('start', () => toast.dismiss('flash'))
-  }, [])
-
-  useEffect(() => {
-    if (flash.error) toast.error(flash.error, { id: 'flash', duration: Infinity })
-    if (flash.success) toast.success(flash.success, { id: 'flash', duration: 5000 })
+    if (flash?.success) toast.success(flash.success)
+    if (flash?.error) toast.error(flash.error)
   }, [flash])
 
   return (
     <Toaster
-      position={position}
-      toastOptions={{ unstyled: true }}
-      icons={{
-        success: <CircleCheck size={18} strokeWidth={1.8} />,
-        error: <CircleAlert size={18} strokeWidth={1.8} />,
+      position="bottom-right"
+      duration={5000}
+      toastOptions={{
+        style: {
+          background: 'var(--surface-raised)',
+          color: 'var(--foreground)',
+          border: '1px solid var(--border-raised)',
+          boxShadow: 'var(--shadow-raised)',
+        },
       }}
     />
   )

@@ -1,109 +1,129 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import db from '@adonisjs/lucid/services/db'
-import { randomUUID } from 'node:crypto'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import Client from '#models/client'
-import { clientValidator } from '#validators/client'
+import File from '#models/file'
+import { UUID, fileUrl } from '#services/file_urls'
+import { clientValidator, quickClientValidator } from '#validators/client'
 
-/**
- * Client records (admin+ only, enforced by admin middleware).
- * Key-business links are derived from the client's case studies via
- * case_study_key_businesses — displayed read-only, managed in case studies.
- */
+type Payload = Awaited<ReturnType<typeof clientValidator.validate>>
+
 export default class ClientsController {
+  /**
+   * The whole library in one payload: it is small and bounded, so search and the
+   * key-business chips are handled client-side. `keyBusinessOptions` feeds the
+   * form's picker, grouped by sector › industry.
+   */
   async index({ inertia }: HttpContext) {
-    const clients = await Client.query().orderBy('name', 'asc')
+    return inertia.render('clients/index', {
+      clients: async () => {
+        const clients = await Client.query()
+          .apply((c) => c.live())
+          .preload('logo')
+          .preload('keyBusinesses', (q) => q.orderBy('name'))
+          .orderBy('name')
 
-    const countRows = await db
-      .from('case_studies')
-      .select('client_id')
-      .count('* as count')
-      .groupBy('client_id')
-    const countByClient = new Map<string, number>(
-      countRows.filter((r) => r.client_id).map((r) => [String(r.client_id), Number(r.count)])
-    )
-
-    let kbByClient = new Map<string, string[]>()
-    try {
-      const kbRows = await db
-        .from('case_studies')
-        .join(
-          'case_study_key_businesses',
-          'case_study_key_businesses.case_study_id',
-          'case_studies.id'
+        const { rows } = await db.rawQuery(
+          `SELECT client_id AS id, count(*)::int AS n
+           FROM case_study WHERE deleted_at IS NULL GROUP BY 1`
         )
-        .join('key_businesses', 'key_businesses.id', 'case_study_key_businesses.key_business_id')
-        .whereNotNull('case_studies.client_id')
-        .select('case_studies.client_id as client_id', 'key_businesses.name as name')
-      const sets = new Map<string, Set<string>>()
-      for (const row of kbRows) {
-        const cid = String(row.client_id)
-        if (!sets.has(cid)) sets.set(cid, new Set())
-        sets.get(cid)!.add(String(row.name))
-      }
-      kbByClient = new Map(
-        [...sets.entries()].map(([k, v]) => [k, [...v].sort((a, b) => a.localeCompare(b))])
+        const studies = new Map<string, number>(
+          rows.map((r: { id: string; n: number }) => [r.id, r.n])
+        )
+
+        return clients.map((c) => ({
+          id: c.id,
+          name: c.name,
+          logo: fileUrl(c.logo),
+          logoFileId: c.logoFileId,
+          studies: studies.get(c.id) ?? 0,
+          keyBusinesses: c.keyBusinesses.map((k) => ({ id: k.id, name: k.name })),
+          updatedAt: c.updatedAt.toISO()!,
+        }))
+      },
+      keyBusinessOptions: async () => {
+        const { rows } = await db.rawQuery(
+          `SELECT kb.id, kb.name, i.name AS industry, s.name AS sector
+           FROM key_business kb
+           JOIN industry i ON i.id = kb.industry_id
+           JOIN sector s ON s.id = i.sector_id
+           ORDER BY s.name, i.name, kb.name`
+        )
+        return rows as { id: string; name: string; industry: string; sector: string }[]
+      },
+    })
+  }
+
+  async store({ request, response, session, auth }: HttpContext) {
+    const payload = await request.validateUsing(clientValidator)
+    if (payload.logoFileId && !(await File.find(payload.logoFileId))) {
+      return response.unprocessableEntity({ errors: [{ field: 'logoFileId' }] })
+    }
+
+    const client = await db.transaction(async (trx) => {
+      const created = await Client.create(
+        {
+          name: payload.name,
+          logoFileId: payload.logoFileId ?? null,
+          createdBy: auth.user!.id,
+        },
+        { client: trx }
       )
-    } catch {
-      kbByClient = new Map()
-    }
-
-    return inertia.render('clients', {
-      clients: clients.map((c) => ({
-        id: c.id,
-        name: c.name,
-        logoUrl: c.logoUrl,
-        caseStudyCount: countByClient.get(c.id) ?? 0,
-        keyBusinesses: kbByClient.get(c.id) ?? [],
-      })),
+      await this.#syncKeyBusinesses(created, payload, trx)
+      return created
     })
+
+    session.flash('success', `Client “${client.name}” added.`)
+    return response.redirect().back()
   }
 
-  async store({ auth, request, response, session }: HttpContext) {
+  /**
+   * Inline create for the case-study editor. Returns JSON so the editor can select the new
+   * client without leaving the page; an existing client with the same name is reused.
+   */
+  async quickStore({ request, auth }: HttpContext) {
+    const { name } = await request.validateUsing(quickClientValidator)
+    const existing = await Client.query()
+      .apply((c) => c.live())
+      .whereRaw('lower(name) = lower(?)', [name])
+      .first()
+    if (existing) return { id: existing.id, name: existing.name }
+
+    const created = await Client.create({ name, createdBy: auth.user!.id })
+    return { id: created.id, name: created.name }
+  }
+
+  async update({ params, request, response, session, auth }: HttpContext) {
+    if (!UUID.test(params.id)) return response.notFound()
     const payload = await request.validateUsing(clientValidator)
-    await Client.create({
-      id: randomUUID(),
-      name: payload.name.trim(),
-      logoUrl: payload.logoUrl?.trim() || null,
-      createdBy: (auth.user as unknown as { id?: string | number })?.id
-        ? String((auth.user as unknown as { id: string | number }).id)
-        : null,
+
+    const client = await Client.query()
+      .where('id', params.id)
+      .apply((c) => c.live())
+      .first()
+    if (!client) return response.notFound()
+    if (payload.logoFileId && !(await File.find(payload.logoFileId))) {
+      return response.unprocessableEntity({ errors: [{ field: 'logoFileId' }] })
+    }
+
+    await db.transaction(async (trx) => {
+      client.useTransaction(trx)
+      client.merge({
+        name: payload.name,
+        // `undefined` keeps the current logo; an explicit null removes it.
+        ...(payload.logoFileId !== undefined && { logoFileId: payload.logoFileId }),
+        updatedBy: auth.user!.id,
+      })
+      await client.save()
+      await this.#syncKeyBusinesses(client, payload, trx)
     })
-    session.flash('success', `Client “${payload.name.trim()}” added`)
+
+    session.flash('success', `Client “${client.name}” saved.`)
     return response.redirect().back()
   }
 
-  async update({ request, response, session, params }: HttpContext) {
-    const payload = await request.validateUsing(clientValidator)
-    const row = await Client.find(String(params.id ?? ''))
-    if (!row) {
-      session.flash('error', 'Client not found')
-      return response.redirect().back()
-    }
-    row.merge({
-      name: payload.name.trim(),
-      logoUrl: payload.logoUrl?.trim() || null,
-    })
-    await row.save()
-    session.flash('success', `Client “${row.name}” updated`)
-    return response.redirect().back()
-  }
-
-  async destroy({ response, session, params }: HttpContext) {
-    const id = String(params.id ?? '')
-    const row = await Client.find(id)
-    if (!row) {
-      session.flash('error', 'Client not found')
-      return response.redirect().back()
-    }
-    // Keep case studies; detach them from the deleted client.
-    try {
-      await db.from('case_studies').where('client_id', id).update({ client_id: null })
-    } catch {
-      // best-effort
-    }
-    const name = row.name
-    await row.delete()
-    session.flash('success', `Client “${name}” deleted`)
-    return response.redirect().back()
+  async #syncKeyBusinesses(client: Client, payload: Payload, trx: TransactionClientContract) {
+    client.useTransaction(trx)
+    await client.related('keyBusinesses').sync([...new Set(payload.keyBusinessIds)])
   }
 }

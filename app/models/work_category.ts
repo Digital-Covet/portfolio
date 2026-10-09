@@ -1,19 +1,11 @@
-import { BaseModel, column } from '@adonisjs/lucid/orm'
-import { DateTime } from 'luxon'
+import { WorkCategorySchema } from '#database/schema'
+import { manyToMany } from '@adonisjs/lucid/orm'
+import type { ManyToMany } from '@adonisjs/lucid/types/relations'
+import CaseStudy from '#models/case_study'
 
-/**
- * Supabase `work_categories` table: id (text), name, created_at.
- */
-export default class WorkCategory extends BaseModel {
-  static connection = 'postgres'
-  static table = 'work_categories'
+export default class WorkCategory extends WorkCategorySchema {
+  static table = 'work_category'
 
-  @column({ isPrimary: true })
-  declare id: string
-
-  @column()
-  declare name: string
-
-  @column.dateTime({ autoCreate: true, columnName: 'created_at' })
-  declare createdAt: DateTime
+  @manyToMany(() => CaseStudy, { pivotTable: 'case_study_work_category' })
+  declare caseStudies: ManyToMany<typeof CaseStudy>
 }

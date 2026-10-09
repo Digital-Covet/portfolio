@@ -1,28 +1,29 @@
-import { BaseModel, column } from '@adonisjs/lucid/orm'
-import { DateTime } from 'luxon'
+import { ClientSchema } from '#database/schema'
+import { belongsTo, hasMany, manyToMany } from '@adonisjs/lucid/orm'
+import type { BelongsTo, HasMany, ManyToMany } from '@adonisjs/lucid/types/relations'
+import AppUser from '#models/app_user'
+import CaseStudy from '#models/case_study'
+import File from '#models/file'
+import KeyBusiness from '#models/key_business'
+import { liveScope } from '#models/helpers/soft_delete'
 
-/**
- * Supabase `clients` table.
- */
-export default class Client extends BaseModel {
-  static connection = 'postgres'
-  static table = 'clients'
+export default class Client extends ClientSchema {
+  static table = 'client'
 
-  @column({ isPrimary: true })
-  declare id: string
+  static live = liveScope
 
-  @column()
-  declare name: string
+  @belongsTo(() => File, { foreignKey: 'logoFileId' })
+  declare logo: BelongsTo<typeof File>
 
-  @column({ columnName: 'logo_url' })
-  declare logoUrl: string | null
+  @belongsTo(() => AppUser, { foreignKey: 'createdBy' })
+  declare creator: BelongsTo<typeof AppUser>
 
-  @column({ columnName: 'created_by' })
-  declare createdBy: string | null
+  @belongsTo(() => AppUser, { foreignKey: 'updatedBy' })
+  declare editor: BelongsTo<typeof AppUser>
 
-  @column.dateTime({ autoCreate: true, columnName: 'created_at' })
-  declare createdAt: DateTime
+  @manyToMany(() => KeyBusiness, { pivotTable: 'client_key_business' })
+  declare keyBusinesses: ManyToMany<typeof KeyBusiness>
 
-  @column.dateTime({ autoCreate: true, autoUpdate: true, columnName: 'updated_at' })
-  declare updatedAt: DateTime
+  @hasMany(() => CaseStudy)
+  declare caseStudies: HasMany<typeof CaseStudy>
 }

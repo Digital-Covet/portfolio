@@ -1,27 +1,11 @@
-import { BaseModel, column } from '@adonisjs/lucid/orm'
+import { CaseStudyMetricSchema } from '#database/schema'
+import { belongsTo } from '@adonisjs/lucid/orm'
+import type { BelongsTo } from '@adonisjs/lucid/types/relations'
+import CaseStudy from '#models/case_study'
 
-/**
- * Supabase `case_study_metrics` table.
- */
-export default class CaseStudyMetric extends BaseModel {
-  static connection = 'postgres'
-  static table = 'case_study_metrics'
+export default class CaseStudyMetric extends CaseStudyMetricSchema {
+  static table = 'case_study_metric'
 
-  @column({ isPrimary: true })
-  declare id: string
-
-  @column({ columnName: 'case_study_id' })
-  declare caseStudyId: string
-
-  @column()
-  declare label: string
-
-  @column()
-  declare value: string
-
-  @column()
-  declare unit: string | null
-
-  @column({ columnName: 'sort_order' })
-  declare sortOrder: number
+  @belongsTo(() => CaseStudy)
+  declare caseStudy: BelongsTo<typeof CaseStudy>
 }

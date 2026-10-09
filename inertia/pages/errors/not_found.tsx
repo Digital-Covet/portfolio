@@ -1,24 +1,22 @@
-import MarketingLayout from '~/layouts/marketing'
+import { ArrowLeft } from 'lucide-react'
+import ErrorPage, { EmptyFrameIllustration, actionClass } from '~/components/error_page'
 
-export default function NotFound() {
+/** `portal` is set for share-portal URLs, where recipients have no workspace to return to. */
+export default function NotFound({ portal = false }: { portal?: boolean }) {
   return (
-    <div className="home">
-      <article className="prose-card">
-        <div className="pc-top">
-          <span className="pc-status mono tag" style={{ color: 'var(--subtle)' }}>
-            <span className="dot" /> 404
-          </span>
-        </div>
-        <div className="pc-lead">
-          <span>Not found.</span>
-          <em>That route hasn&apos;t been built yet.</em>
-        </div>
-        <p className="pc-para">
-          The page you tried to reach doesn&apos;t exist. Check the URL or head back home.
-        </p>
-      </article>
-    </div>
+    <ErrorPage
+      title="Page not found"
+      status={404}
+      heading="This page doesn't exist."
+      illustration={<EmptyFrameIllustration />}
+      action={
+        portal ? undefined : (
+          <a href="/dashboard" className={actionClass}>
+            <ArrowLeft size={16} strokeWidth={1.75} aria-hidden />
+            Back to dashboard
+          </a>
+        )
+      }
+    />
   )
 }
-
-NotFound.layout = [MarketingLayout]

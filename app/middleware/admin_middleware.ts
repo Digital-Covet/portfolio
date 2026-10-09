@@ -1,26 +1,16 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import type { NextFn } from '@adonisjs/core/types/http'
-import { isAdminSession } from '#services/portfolio_auth'
 
 /**
- * Admin middleware. Requires a signed-in user whose IAM session role is
- * admin or superadmin. The role is read from the session claims stored at
- * OAuth login (IAM truth) — never from the users table, which no longer
- * stores authorization data.
+ * Library pages (clients, taxonomies) are for admin and superadmin only. The nav hides
+ * them from staff, so a direct URL gets a plain 403 instead of a disabled affordance.
+ * Must run after the auth middleware.
  */
 export default class AdminMiddleware {
-  redirectTo = '/dashboard'
-
-  async handle(ctx: HttpContext, next: NextFn) {
-    if (!isAdminSession(ctx)) {
-      // API-style / JSON callers get a 403; page navigations redirect.
-      const acceptsJson =
-        ctx.request.header('accept')?.includes('application/json') ||
-        ctx.request.header('x-requested-with') === 'XMLHttpRequest'
-      if (acceptsJson && !ctx.request.header('x-inertia')) {
-        return ctx.response.forbidden({ message: 'Admin access required' })
-      }
-      return ctx.response.redirect(this.redirectTo, true)
+  async handle({ auth, response }: HttpContext, next: NextFn) {
+    const role = auth.user?.role
+    if (role !== 'admin' && role !== 'superadmin') {
+      return response.forbidden('You don’t have access to this page.')
     }
     return next()
   }

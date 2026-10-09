@@ -1,28 +1,11 @@
-import { BaseModel, column } from '@adonisjs/lucid/orm'
-import { DateTime } from 'luxon'
+import { ShareViewSchema } from '#database/schema'
+import { belongsTo } from '@adonisjs/lucid/orm'
+import type { BelongsTo } from '@adonisjs/lucid/types/relations'
+import Share from '#models/share'
 
-/**
- * Supabase `share_views` table.
- */
-export default class ShareView extends BaseModel {
-  static connection = 'postgres'
-  static table = 'share_views'
+export default class ShareView extends ShareViewSchema {
+  static table = 'share_view'
 
-  @column({ isPrimary: true })
-  declare id: string
-
-  @column({ columnName: 'share_link_id' })
-  declare shareLinkId: string
-
-  @column()
-  declare ip: string | null
-
-  @column({ columnName: 'session_id' })
-  declare sessionId: string | null
-
-  @column({ columnName: 'user_agent' })
-  declare userAgent: string | null
-
-  @column.dateTime({ autoCreate: true, columnName: 'viewed_at' })
-  declare viewedAt: DateTime
+  @belongsTo(() => Share)
+  declare share: BelongsTo<typeof Share>
 }

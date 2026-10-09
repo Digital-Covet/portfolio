@@ -1,16 +1,14 @@
 {
-  "name": "digitalcovet-portfolio",
+  "name": "portfolio-digital-covet",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "license": "UNLICENSED",
-  "packageManager": "pnpm@11.16.0",
   "engines": {
-    "node": "26.10.0",
-    "pnpm": "11.16.0"
+    "node": ">=24.0.0"
   },
   "scripts": {
-    "start": "node build/bin/server.js",
+    "start": "node bin/server.js",
     "build": "node ace build",
     "dev": "node ace serve --hmr",
     "test": "node ace test",
@@ -20,8 +18,6 @@
   },
   "imports": {
     "#controllers/*": "./app/controllers/*.js",
-    "#effect/*": "./app/effect/*.js",
-    "#errors/*": "./app/errors/*.js",
     "#exceptions/*": "./app/exceptions/*.js",
     "#models/*": "./app/models/*.js",
     "#mails/*": "./app/mails/*.js",
@@ -77,6 +73,9 @@
     "@adonisjs/static": "^2.0.1",
     "@adonisjs/vite": "^6.0.2",
     "@base-ui/react": "^1.8.0",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
     "@fontsource-variable/jost": "^5.3.0",
     "@fontsource-variable/rubik": "^5.3.0",
@@ -87,12 +86,13 @@
     "@vinejs/vine": "^4.4.0",
     "better-sqlite3": "^13.0.3",
     "edge.js": "^6.5.1",
-    "effect": "^4.0.1",
     "lucide-react": "^1.48.0",
     "luxon": "^3.7.2",
+    "motion": "^14.0.0",
     "pg": "^8.23.1",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "react-markdown": "^10.1.0",
     "reflect-metadata": "^0.2.2",
     "sonner": "^2.0.8",
     "tailwindcss": "^4.3.3"
@@ -105,7 +105,7 @@
   },
   "overrides": {
     "eslint-plugin-react": {
-      "eslint": "^10.11.0"
+      "eslint": "$eslint"
     }
   },
   "allowScripts": {

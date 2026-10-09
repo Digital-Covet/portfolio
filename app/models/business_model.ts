@@ -1,19 +1,11 @@
-import { BaseModel, column } from '@adonisjs/lucid/orm'
-import { DateTime } from 'luxon'
+import { BusinessModelSchema } from '#database/schema'
+import { manyToMany } from '@adonisjs/lucid/orm'
+import type { ManyToMany } from '@adonisjs/lucid/types/relations'
+import CaseStudy from '#models/case_study'
 
-/**
- * Supabase `business_models` table: id (text), name, created_at.
- */
-export default class BusinessModel extends BaseModel {
-  static connection = 'postgres'
-  static table = 'business_models'
+export default class BusinessModel extends BusinessModelSchema {
+  static table = 'business_model'
 
-  @column({ isPrimary: true })
-  declare id: string
-
-  @column()
-  declare name: string
-
-  @column.dateTime({ autoCreate: true, columnName: 'created_at' })
-  declare createdAt: DateTime
+  @manyToMany(() => CaseStudy, { pivotTable: 'case_study_business_model' })
+  declare caseStudies: ManyToMany<typeof CaseStudy>
 }

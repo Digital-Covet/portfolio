@@ -1,14 +1,7 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import type { NextFn } from '@adonisjs/core/types/http'
-import UserTransformer from '#transformers/user_transformer'
+import AppUserTransformer from '#transformers/app_user_transformer'
 import BaseInertiaMiddleware from '@adonisjs/inertia/inertia_middleware'
-import { getSessionAppAccess, getSessionRole } from '#services/portfolio_auth'
-import env from '#start/env'
-
-type SharedUser = ReturnType<typeof UserTransformer.transform> & {
-  role: string
-  appAccess: string[]
-}
 
 export default class InertiaMiddleware extends BaseInertiaMiddleware {
   share(ctx: HttpContext) {
@@ -20,7 +13,7 @@ export default class InertiaMiddleware extends BaseInertiaMiddleware {
      * In that case, we must always assume that HttpContext is not fully hydrated
      * with all the properties
      */
-    const { auth, request, session } = ctx as Partial<HttpContext>
+    const { auth, request } = ctx as Partial<HttpContext>
 
     const theme: 'light' | 'dark' | 'system' =
       request?.plainCookie('app_theme', {
@@ -32,34 +25,10 @@ export default class InertiaMiddleware extends BaseInertiaMiddleware {
      * Data shared with all Inertia pages. Make sure you are using
      * transformers for rich data-types like Models.
      */
-    const iamBase = env.get('IAM_BASE_URL').replace(/\/$/, '')
-
-    // IAM is the sole authority for role/appAccess. They come from the
-    // session claims stored at OAuth login — never from the users table.
-    // Missing claims fall back to least-privilege for display; the server
-    // middlewares still deny access.
-    let sharedUser: SharedUser | undefined
-    if (auth?.user) {
-      const base = UserTransformer.transform(auth.user)
-      let role: string | null = null
-      let appAccess: string[] = []
-      try {
-        if (session) {
-          role = getSessionRole({ session } as HttpContext)
-          appAccess = getSessionAppAccess({ session } as HttpContext)
-        }
-      } catch {
-        role = null
-        appAccess = []
-      }
-      sharedUser = { ...base, role: role ?? 'employee', appAccess }
-    }
-
     return {
       errors: ctx.inertia.always(this.getValidationErrors(ctx)),
-      user: ctx.inertia.always(sharedUser),
+      user: ctx.inertia.always(auth?.user ? AppUserTransformer.transform(auth.user) : undefined),
       preferences: ctx.inertia.always({ theme }),
-      iamAccountUrl: ctx.inertia.always(`${iamBase}/account`),
     }
   }
 

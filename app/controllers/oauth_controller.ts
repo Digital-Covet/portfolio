@@ -1,200 +1,79 @@
-import { createHmac, timingSafeEqual } from 'node:crypto'
-import User from '#models/user'
-import {
-  buildAuthorizeUrl,
-  createPkcePair,
-  createState,
-  exchangeCodeForTokens,
-  fetchUserInfo,
-} from '#services/iam_oauth_service'
-import { storeIamSession, clearIamSession, toIdentityRoleStrict } from '#services/portfolio_auth'
-import env from '#start/env'
 import type { HttpContext } from '@adonisjs/core/http'
+import { DateTime } from 'luxon'
+import logger from '@adonisjs/core/services/logger'
+import AppUser from '#models/app_user'
+import { APP_SLUG, createAuthorization, exchangeCode, fetchProfile } from '#services/iam_oauth'
 
-const STATE_COOKIE = 'iam_oauth_state'
-const VERIFIER_COOKIE = 'iam_oauth_verifier'
+const PENDING_KEY = 'iam_oauth'
 
-function decodeLogoutTokenPayload(token: string): Record<string, unknown> | null {
-  const parts = token.split('.')
-  if (parts.length !== 3) return null
-  try {
-    return JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'))
-  } catch {
-    return null
-  }
-}
+type Pending = { state: string; verifier: string }
 
-export default class OauthController {
-  async redirect({ response }: HttpContext) {
-    const { verifier, challenge } = createPkcePair()
-    const state = createState()
-
-    response.plainCookie(STATE_COOKIE, state, {
-      httpOnly: true,
-      sameSite: 'lax',
-      maxAge: 60 * 10,
-      path: '/',
-    })
-    response.plainCookie(VERIFIER_COOKIE, verifier, {
-      httpOnly: true,
-      sameSite: 'lax',
-      maxAge: 60 * 10,
-      path: '/',
-    })
-
-    return response.redirect(buildAuthorizeUrl(state, challenge))
+/**
+ * Sign-in through Digital Covet ID. `redirect` starts the PKCE flow;
+ * `callback` completes it and mirrors the IAM user into `app_user`.
+ */
+export default class OAuthController {
+  async redirect({ session, response }: HttpContext) {
+    const { url, state, verifier } = createAuthorization()
+    session.put(PENDING_KEY, { state, verifier } satisfies Pending)
+    return response.redirect(url)
   }
 
-  async callback(ctx: HttpContext) {
-    const { request, response, auth, session, inertia } = ctx
-    const code = request.input('code')
-    const returnedState = request.input('state')
-    const error = request.input('error')
-    const errorDescription = request.input('error_description')
-
-    if (error || !code) {
-      session.flash('errors', {
-        email: errorDescription || 'Sign in with Covet ID was cancelled.',
-      })
-      return response.redirect().toRoute('session.create')
+  async callback({ request, session, response, auth }: HttpContext) {
+    const fail = (message: string) => {
+      session.flash('error', message)
+      return response.redirect('/login')
     }
 
-    const expectedState = request.plainCookie(STATE_COOKIE)
-    const verifier = request.plainCookie(VERIFIER_COOKIE)
-    response.clearCookie(STATE_COOKIE, { path: '/' })
-    response.clearCookie(VERIFIER_COOKIE, { path: '/' })
+    const pending = session.pull(PENDING_KEY) as Pending | undefined
+    const { code, state, error } = request.qs()
 
-    if (!expectedState || !verifier || expectedState !== returnedState) {
-      session.flash('errors', { email: 'Invalid OAuth state. Please try again.' })
-      return response.redirect().toRoute('session.create')
+    if (typeof error === 'string' && error) {
+      return fail(
+        error === 'access_denied'
+          ? 'Sign-in was cancelled or you do not have access to Portfolio.'
+          : 'Digital Covet ID could not sign you in. Try again.'
+      )
+    }
+    if (!pending || typeof code !== 'string' || state !== pending.state) {
+      return fail('Your sign-in session expired. Try again.')
     }
 
-    let userinfo
     try {
-      const tokens = await exchangeCodeForTokens(code, verifier)
-      userinfo = await fetchUserInfo(tokens.access_token)
-    } catch (e) {
-      ctx.logger.error({ err: e }, 'IAM OAuth callback failed')
-      session.flash('errors', { email: 'Could not complete Covet ID sign-in.' })
-      return response.redirect().toRoute('session.create')
-    }
+      const tokens = await exchangeCode(code, pending.verifier)
+      const profile = await fetchProfile(tokens.accessToken)
 
-    if (!userinfo.email) {
-      session.flash('errors', { email: 'IAM account has no email address.' })
-      return response.redirect().toRoute('session.create')
-    }
-
-    // IAM is the sole authority for authorization. A missing/unknown role
-    // must deny — never fall back to 'employee' (that fallback is what let
-    // non-IAM users appear as employees).
-    const role = toIdentityRoleStrict(userinfo.role)
-    if (!role || !userinfo.sub) {
-      ctx.logger.warn(
-        {
-          reason: !userinfo.sub ? 'missing_sub' : 'missing_role',
-          hasSub: Boolean(userinfo.sub),
-          roleType: typeof userinfo.role,
-          rolePresent: userinfo.role !== undefined && userinfo.role !== null,
-        },
-        'IAM OAuth callback denied: missing identity claims'
-      )
-      response.status(403)
-      return inertia.render('errors/forbidden', {
-        message: 'Your IAM account is missing required identity claims.',
-      })
-    }
-    const appAccess = Array.isArray(userinfo.app_access) ? userinfo.app_access : []
-    if (!appAccess.includes('Portfolio')) {
-      ctx.logger.warn(
-        { reason: 'missing_portfolio_access', appAccessLength: appAccess.length },
-        'IAM OAuth callback denied: no Portfolio access'
-      )
-      response.status(403)
-      return inertia.render('errors/forbidden', {
-        message: 'Your account does not have access to Portfolio.',
-      })
-    }
-
-    let user =
-      (await User.findBy('iamSub', userinfo.sub)) ?? (await User.findBy('email', userinfo.email))
-
-    if (user) {
-      // Identity link must be stable: never adopt a different iamSub via a
-      // mere email match. If the email row belongs to another identity,
-      // deny instead of merging (prevents account takeover / resurrection
-      // of a deleted IAM user that reuses an email).
-      if (user.iamSub && user.iamSub !== userinfo.sub) {
-        ctx.logger.warn(
-          { reason: 'iam_sub_mismatch' },
-          'IAM OAuth callback denied: email linked to a different Covet ID'
-        )
-        response.status(403)
-        return inertia.render('errors/forbidden', {
-          message: 'This email is already linked to a different Covet ID.',
-        })
+      if (!profile.app_access?.includes(APP_SLUG)) {
+        return fail('Your account does not have access to Portfolio.')
       }
-      user.merge({
-        iamSub: userinfo.sub,
-        email: userinfo.email,
-        fullName: userinfo.name ?? user.fullName,
-        avatarUrl: userinfo.picture ?? user.avatarUrl,
-        emailVerified: userinfo.email_verified === true,
-        departmentId: userinfo.department_id ?? user.departmentId,
-      })
+
+      // IAM owns the role; Portfolio only accepts the values its table allows.
+      const role = profile.role
+      if (role !== 'employee' && role !== 'admin' && role !== 'superadmin') {
+        return fail('Your account has no valid Portfolio role. Contact an administrator.')
+      }
+
+      let user = await AppUser.find(profile.sub)
+      if (user?.deletedAt) return fail('Your account does not have access to Portfolio.')
+
+      if (!user) {
+        user = new AppUser()
+        user.id = profile.sub
+      }
+      user.role = role
+      user.email = profile.email
+      user.name = profile.name ?? null
+      user.image = profile.picture ?? null
+      user.lastSyncedAt = DateTime.now()
       await user.save()
-    } else {
-      user = await User.create({
-        iamSub: userinfo.sub,
-        email: userinfo.email,
-        fullName: userinfo.name ?? userinfo.email.split('@')[0],
-        password: null,
-        avatarUrl: userinfo.picture ?? null,
-        emailVerified: userinfo.email_verified === true,
-        departmentId: userinfo.department_id ?? null,
-      })
+
+      await auth.use('web').login(user)
+      if (tokens.idToken) session.put('iam_id_token', tokens.idToken)
+
+      return response.redirect('/dashboard')
+    } catch (err) {
+      logger.error({ err }, 'IAM sign-in failed')
+      return fail('Could not complete sign-in with Digital Covet ID. Try again.')
     }
-
-    storeIamSession({ session }, role, appAccess)
-    await auth.use('web').login(user)
-    return response.redirect().toRoute('dashboard')
-  }
-
-  async frontChannelLogout({ request, response, auth, session }: HttpContext) {
-    const logoutToken = request.input('logout_token')
-    const rawSecret = env.get('FRONT_CHANNEL_LOGOUT_SECRET')
-    const secret = typeof rawSecret === 'string' ? rawSecret : rawSecret?.release()
-
-    if (logoutToken && secret) {
-      const [header, payload, signature] = logoutToken.split('.')
-      if (header && payload && signature) {
-        const expected = createHmac('sha256', secret)
-          .update(`${header}.${payload}`)
-          .digest('base64url')
-        try {
-          if (
-            signature.length === expected.length &&
-            timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
-          ) {
-            const claims = decodeLogoutTokenPayload(logoutToken)
-            const sid = typeof claims?.sid === 'string' ? claims.sid : undefined
-            if (sid) {
-              clearIamSession({ session, auth } as HttpContext)
-              await auth.use('web').logout()
-            } else {
-              clearIamSession({ session, auth } as HttpContext)
-              await auth.use('web').logout()
-            }
-            return response.ok({ received: true })
-          }
-        } catch {
-          // fall through to local logout
-        }
-      }
-    }
-
-    // No (valid) token: still end local session so single logout always works.
-    clearIamSession({ session, auth } as HttpContext)
-    await auth.use('web').logout()
-    return response.redirect().toRoute('session.create')
   }
 }

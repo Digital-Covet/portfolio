@@ -1,50 +1,52 @@
 import vine from '@vinejs/vine'
 
+const ids = () => vine.array(vine.string().uuid()).maxLength(100)
+
 /**
- * Case-study editor payload. Drafts allow partial content; publishing
- * requires the five items listed in the design-system editor spec
- * (title, summary, hero image, client, sector).
+ * Editor payload. Drafts only need a title and client; the publish-time checks
+ * (hero, classification) live in the controller so errors can name the field.
  */
-export const caseStudyDraftValidator = vine.create({
-  title: vine.string().trim().maxLength(180).optional(),
-  summary: vine.string().trim().maxLength(240).optional(),
-  heroImageKey: vine.string().trim().maxLength(512).optional(),
-  clientId: vine.string().trim().maxLength(64).optional(),
-  sector: vine.string().trim().maxLength(120).optional(),
-  industry: vine.string().trim().maxLength(120).optional(),
-  keyBusiness: vine.string().trim().maxLength(120).optional(),
-  categories: vine.array(vine.string().trim().maxLength(120)).optional(),
-  services: vine.array(vine.string().trim().maxLength(120)).optional(),
-  businessModels: vine.array(vine.string().trim().maxLength(120)).optional(),
-  storyMarkdown: vine.string().optional(),
-  galleryKeys: vine.array(vine.string().trim().maxLength(512)).optional(),
-  videos: vine
+export const caseStudyValidator = vine.create({
+  intent: vine.enum(['save', 'autosave', 'publish', 'restore']),
+  title: vine.string().trim().minLength(1).maxLength(255),
+  clientId: vine.string().uuid(),
+  overview: vine.string().trim().maxLength(20000).optional(),
+  challenge: vine.string().trim().maxLength(20000).optional(),
+  solution: vine.string().trim().maxLength(20000).optional(),
+  results: vine.string().trim().maxLength(20000).optional(),
+  /** Sections the editor has no field for, kept verbatim so a save never drops them. */
+  extra: vine.string().maxLength(40000).optional(),
+  heroFileId: vine.string().uuid().nullable().optional(),
+  galleryIds: ids(),
+  attachmentIds: ids(),
+  videoUrls: vine
     .array(
-      vine.object({
-        url: vine.string().trim().url().maxLength(2048),
-        provider: vine.enum(['youtube', 'vimeo', 'other'] as const).optional(),
-      })
+      vine
+        .string()
+        .trim()
+        .url({ protocols: ['https'] })
+        .maxLength(2048)
     )
-    .optional(),
+    .maxLength(10),
   metrics: vine
     .array(
       vine.object({
-        label: vine.string().trim().maxLength(120),
-        value: vine.string().trim().maxLength(64),
-        suffix: vine.enum(['%', 'x', '+', ''] as const).optional(),
+        label: vine.string().trim().minLength(1).maxLength(255),
+        value: vine.string().trim().minLength(1).maxLength(255),
       })
     )
-    .optional(),
-  testimonialQuote: vine.string().trim().maxLength(2000).optional(),
-  testimonialName: vine.string().trim().maxLength(180).optional(),
-  testimonialRole: vine.string().trim().maxLength(240).optional(),
-  attachmentKeys: vine.array(vine.string().trim().maxLength(512)).optional(),
-})
-
-export const caseStudyPublishValidator = vine.create({
-  title: vine.string().trim().minLength(1).maxLength(180),
-  summary: vine.string().trim().minLength(1).maxLength(240),
-  heroImageKey: vine.string().trim().minLength(1).maxLength(512),
-  clientId: vine.string().trim().minLength(1).maxLength(64),
-  sector: vine.string().trim().minLength(1).maxLength(120),
+    .maxLength(12),
+  testimonials: vine
+    .array(
+      vine.object({
+        quote: vine.string().trim().minLength(1).maxLength(2000),
+        authorName: vine.string().trim().minLength(1).maxLength(255),
+        authorTitle: vine.string().trim().maxLength(255).nullable().optional(),
+      })
+    )
+    .maxLength(10),
+  keyBusinessIds: ids(),
+  workCategoryIds: ids(),
+  serviceIds: ids(),
+  businessModelIds: ids(),
 })
