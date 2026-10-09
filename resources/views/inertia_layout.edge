@@ -1,12 +1,24 @@
 <!DOCTYPE html>
-<html data-theme="{{ request.plainCookie('app_theme', { defaultValue: 'dark', encoded: false }) === 'light' ? 'light' : 'dark' }}">
+<html lang="en" data-theme="{{ request.plainCookie('app_theme', { defaultValue: 'dark', encoded: false }) === 'light' ? 'light' : 'dark' }}">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <script>try{var m=document.cookie.match(/app_theme=(\w+)/);if(m&&m[1]==='system'){document.documentElement.setAttribute('data-theme',matchMedia('(prefers-color-scheme: light)').matches?'light':'dark')}}catch(e){}</script>
-    <title data-inertia>
-      AdonisJS
-    </title>
+    <title data-inertia>Digital Covet</title>
+
+    <meta name="description" content="Digital Covet's private portfolio workspace: case studies and client previews shared by invitation." />
+    <meta name="robots" content="noindex, nofollow, noarchive" />
+    <meta name="referrer" content="same-origin" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#0B0D12" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#F7F8FA" media="(prefers-color-scheme: light)" />
+    <meta name="application-name" content="Digital Covet" />
+    <meta property="og:site_name" content="Digital Covet" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary" />
+
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/site.webmanifest" />
 
     @viteReactRefresh()
     @vite(['inertia/app.tsx'])
@@ -19,4 +31,3 @@
   </body>
 
 </html>
-

@@ -26,7 +26,9 @@ export default function Page({
 }: PageProps) {
   return (
     <>
-      <Head title={title} />
+      <Head title={title}>
+        {description && <meta head-key="description" name="description" content={description} />}
+      </Head>
       <div
         className="mx-auto w-full"
         style={{ maxWidth: wide ? 'var(--container-wide)' : 'var(--container)' }}
