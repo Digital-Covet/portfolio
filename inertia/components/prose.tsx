@@ -1,4 +1,5 @@
 import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 export function fmtSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`
@@ -30,9 +31,21 @@ export function Prose({ text }: { text: string }) {
   return (
     <div className="flex max-w-[var(--prose)] flex-col gap-3 text-sm/6 text-foreground">
       <Markdown
+        remarkPlugins={[remarkGfm]}
         disallowedElements={['img']}
         unwrapDisallowed
         components={{
+          table: ({ children }) => (
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-left text-sm">{children}</table>
+            </div>
+          ),
+          th: ({ children }) => (
+            <th className="border-b border-border-strong px-3 py-2 font-semibold">{children}</th>
+          ),
+          td: ({ children }) => (
+            <td className="border-b border-border px-3 py-2 align-top">{children}</td>
+          ),
           h1: ({ children }) => (
             <h3 className="font-display text-base/6 font-semibold">{children}</h3>
           ),
