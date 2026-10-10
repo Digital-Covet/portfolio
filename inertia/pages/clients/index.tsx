@@ -205,7 +205,7 @@ function ClientForm({
     try {
       const body = new FormData()
       body.set('kind', 'image')
-      body.set('folder', 'logos')
+      body.set('folder', 'client-logos')
       body.set('file', file)
       const res = await fetch('/uploads', {
         method: 'POST',

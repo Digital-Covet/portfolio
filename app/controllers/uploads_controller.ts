@@ -17,8 +17,14 @@ const KINDS = {
 
 const kindValidator = vine.create({
   kind: vine.enum(['image', 'attachment']),
-  folder: vine.enum(['case-studies', 'logos']).optional(),
+  folder: vine.enum(['client-logos', 'case-study-images', 'case-study-attachments']).optional(),
 })
+
+/** Where each kind lands when the caller doesn't name a folder (case-study editor). */
+const DEFAULT_FOLDER = {
+  image: 'case-study-images',
+  attachment: 'case-study-attachments',
+} as const
 
 /** Drops control characters from the client's file name; it is metadata only. */
 function cleanName(name: string, extname: string) {
@@ -33,7 +39,8 @@ function cleanName(name: string, extname: string) {
  */
 export default class UploadsController {
   async store({ request, response, auth }: HttpContext) {
-    const { kind, folder = 'case-studies' } = await request.validateUsing(kindValidator)
+    const { kind, folder: requested } = await request.validateUsing(kindValidator)
+    const folder = requested ?? DEFAULT_FOLDER[kind]
     const rules = KINDS[kind]
 
     const upload = request.file('file', { size: rules.size, extnames: [...rules.extnames] })
