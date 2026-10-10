@@ -26,13 +26,20 @@ export function LogoMark({ size = 24, className }: LogoProps) {
 export default function Logo({
   size = 24,
   collapsed = false,
-}: LogoProps & { collapsed?: boolean }) {
+  stacked = false,
+}: LogoProps & { collapsed?: boolean; stacked?: boolean }) {
   return (
     <div className="flex h-14 items-center gap-2.5 px-4">
       <LogoMark size={size} className="shrink-0" />
       {!collapsed && (
-        <div className="flex min-w-0 items-baseline gap-2">
-          <span className="font-display text-base font-semibold tracking-tight">Digital Covet</span>
+        <div
+          className={
+            stacked ? 'flex min-w-0 flex-col leading-tight' : 'flex min-w-0 items-baseline gap-2'
+          }
+        >
+          <span className="whitespace-nowrap font-display text-base font-semibold tracking-tight">
+            Digital Covet
+          </span>
           <span className="text-xs text-muted-foreground">Portfolio</span>
         </div>
       )}

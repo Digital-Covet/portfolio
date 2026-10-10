@@ -209,7 +209,7 @@ export function SidebarContent({ collapsed, onToggle, onOpenPalette, onNavigate 
     <>
       <div className={collapsed ? 'flex flex-col items-center' : 'flex items-center pr-3'}>
         <div className="min-w-0 flex-1">
-          <Logo collapsed={collapsed} />
+          <Logo collapsed={collapsed} stacked />
         </div>
         {onToggle && <SidebarToggle collapsed={collapsed} onToggle={onToggle} />}
       </div>
