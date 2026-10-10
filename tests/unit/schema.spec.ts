@@ -89,7 +89,9 @@ test.group('schema', (group) => {
     assert.lengthOf(loaded.keyBusinesses, 1)
 
     await markDeleted(study)
-    const live = await CaseStudy.query({ client: trx }).apply((s) => s.live())
+    const live = await CaseStudy.query({ client: trx })
+      .where('id', study.id)
+      .apply((s) => s.live())
     assert.lengthOf(live, 0)
   })
 
