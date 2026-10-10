@@ -21,7 +21,7 @@ export default class OAuthController {
   async callback({ request, session, response, auth }: HttpContext) {
     const fail = (message: string) => {
       session.flash('error', message)
-      return response.redirect('/login')
+      return response.redirect().withQs(false).toPath('/login')
     }
 
     const pending = session.pull(PENDING_KEY) as Pending | undefined
