@@ -1,8 +1,7 @@
 import type { HttpContext } from '@adonisjs/core/http'
-import { DateTime } from 'luxon'
 import logger from '@adonisjs/core/services/logger'
-import AppUser from '#models/app_user'
 import { APP_SLUG, createAuthorization, exchangeCode, fetchProfile } from '#services/iam_oauth'
+import { syncAppUser } from '#services/user_sync'
 
 const PENDING_KEY = 'iam_oauth'
 
@@ -53,19 +52,8 @@ export default class OAuthController {
         return fail('Your account has no valid Portfolio role. Contact an administrator.')
       }
 
-      let user = await AppUser.find(profile.sub)
-      if (user?.deletedAt) return fail('Your account does not have access to Portfolio.')
-
-      if (!user) {
-        user = new AppUser()
-        user.id = profile.sub
-      }
-      user.role = role
-      user.email = profile.email
-      user.name = profile.name ?? null
-      user.image = profile.picture ?? null
-      user.lastSyncedAt = DateTime.now()
-      await user.save()
+      const user = await syncAppUser(profile, role)
+      if (!user) return fail('Your account does not have access to Portfolio.')
 
       await auth.use('web').login(user)
       if (tokens.idToken) session.put('iam_id_token', tokens.idToken)
