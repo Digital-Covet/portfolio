@@ -1,0 +1,29 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: portfolio
+  labels:
+    app.kubernetes.io/name: portfolio
+    app.kubernetes.io/part-of: digital-covet
+  annotations:
+    # cert-manager issues the certificate referenced by spec.tls below.
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Uploads are validated at 20 MB in the app; ingress-nginx defaults to 1 MB.
+    nginx.ingress.kubernetes.io/proxy-body-size: 25m
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - portfolio.example.com
+      secretName: portfolio-tls
+  rules:
+    - host: portfolio.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: portfolio
+                port:
+                  name: http

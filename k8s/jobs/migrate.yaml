@@ -1,0 +1,74 @@
+# One-shot migrations. Applied by scripts/k8s-deploy.sh, which substitutes
+# __IMAGE__ and waits for completion before rolling out the Deployment. Never
+# part of the kustomization: Job names are immutable, so it is deleted and
+# recreated on every deploy.
+#
+# Migrations use the direct session-mode pooler because DDL cannot run through
+# the transaction-mode pooler (DATABASE_URL).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: portfolio-migrate
+  labels:
+    app.kubernetes.io/name: portfolio
+    app.kubernetes.io/component: migrate
+    app.kubernetes.io/part-of: digital-covet
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 600
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: portfolio
+        app.kubernetes.io/component: migrate
+        app.kubernetes.io/part-of: digital-covet
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: __IMAGE__
+          imagePullPolicy: IfNotPresent
+          command:
+            - node
+            - ace
+            - migration:run
+            - --connection=postgres_direct
+            - --force
+          envFrom:
+            - configMapRef:
+                name: portfolio-config
+            - secretRef:
+                name: portfolio-env
+          resources:
+            requests:
+              cpu: 50m
+              memory: 192Mi
+            limits:
+              cpu: '1'
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ['ALL']
+          volumeMounts:
+            - name: app-tmp
+              mountPath: /app/tmp
+            - name: pod-tmp
+              mountPath: /tmp
+      volumes:
+        - name: app-tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: pod-tmp
+          emptyDir:
+            sizeLimit: 64Mi

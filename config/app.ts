@@ -32,6 +32,14 @@ export const http = defineConfig({
    */
   useAsyncLocalStorage: false,
 
+  /**
+   * Trust private address ranges (RFC1918 + IPv6 ULA), which is where the
+   * ingress controller pods live. Honoring X-Forwarded-For keeps per-IP
+   * throttling and audit-log IPs correct. Never trust all proxies: that would
+   * let clients spoof their address.
+   */
+  trustProxy: 'uniquelocal',
+
   router: {
     matcher: 'tree',
   },

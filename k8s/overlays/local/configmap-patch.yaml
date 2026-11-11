@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: portfolio-config
+data:
+  # Reached with `kubectl -n portfolio port-forward svc/portfolio 3333:80`.
+  # The IAM OAuth client must allow http://localhost:3333/auth/callback.
+  APP_URL: http://localhost:3333

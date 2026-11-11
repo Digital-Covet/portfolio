@@ -1,0 +1,31 @@
+# Dependencies and build output
+node_modules
+build
+
+# Version control and CI
+.git
+.gitignore
+.github
+
+# Secrets and local environment files
+.env
+.env.*
+
+# Runtime/temporary and generated assets
+tmp
+public/assets
+
+# Deployment tooling (not needed to build the image)
+k8s
+scripts
+docs
+Makefile
+*.md
+
+# Tooling and local artifacts
+coverage
+*.log
+.DS_Store
+.idea
+.vscode
+*.tsbuildinfo

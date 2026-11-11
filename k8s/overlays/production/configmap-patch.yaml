@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: portfolio-config
+data:
+  # Public HTTPS origin. Must match the IAM OAuth client's registered redirect
+  # URI (`<APP_URL>/auth/callback`).
+  APP_URL: https://portfolio.example.com

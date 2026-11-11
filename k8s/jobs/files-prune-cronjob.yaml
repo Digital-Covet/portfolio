@@ -1,0 +1,83 @@
+# Opt-in: deletes uploads that no case study or client references, older than
+# 24 hours. Deliberately NOT part of the kustomization. Enable it once you are
+# happy with a dry run:
+#
+#   kubectl -n portfolio create job --from=cronjob/portfolio-files-prune \
+#     portfolio-files-prune-manual
+#
+# ...or add this file to the overlay's `resources` list. Dry run first with
+# `kubectl -n portfolio exec deploy/portfolio -- node ace files:prune`.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: portfolio-files-prune
+  labels:
+    app.kubernetes.io/name: portfolio
+    app.kubernetes.io/component: prune
+    app.kubernetes.io/part-of: digital-covet
+spec:
+  schedule: '0 3 * * *'
+  timeZone: UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 900
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: portfolio
+            app.kubernetes.io/component: prune
+            app.kubernetes.io/part-of: digital-covet
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: prune
+              image: ghcr.io/digitalcovet/portfolio-digital-covet:latest
+              imagePullPolicy: IfNotPresent
+              command:
+                - node
+                - ace
+                - files:prune
+                - --force
+                - --hours=24
+              envFrom:
+                - configMapRef:
+                    name: portfolio-config
+                - secretRef:
+                    name: portfolio-env
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 192Mi
+                limits:
+                  cpu: '1'
+                  memory: 512Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ['ALL']
+              volumeMounts:
+                - name: app-tmp
+                  mountPath: /app/tmp
+                - name: pod-tmp
+                  mountPath: /tmp
+          volumes:
+            - name: app-tmp
+              emptyDir:
+                sizeLimit: 64Mi
+            - name: pod-tmp
+              emptyDir:
+                sizeLimit: 64Mi

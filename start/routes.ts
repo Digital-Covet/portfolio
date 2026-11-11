@@ -14,6 +14,16 @@ import router from '@adonisjs/core/services/router'
 // No marketing page: the auth middleware sends signed-out visitors on to /login.
 router.get('/', ({ response }) => response.redirect('/dashboard')).as('home')
 
+/**
+ * Container/orchestrator liveness probe. Deliberately public and free of
+ * dependencies, so a database or storage outage never restarts a healthy
+ * process. Kubernetes probes and the image HEALTHCHECK point here.
+ */
+router.get('/health', async ({ response }) => {
+  response.header('cache-control', 'no-store')
+  return { status: 'ok' }
+})
+
 // Sign-in is delegated to IAM (Digital Covet ID, OAuth 2.0 + PKCE).
 const OAuthController = () => import('#controllers/oauth_controller')
 const TaxonomiesController = () => import('#controllers/taxonomies_controller')

@@ -1,0 +1,15 @@
+# Local kind cluster. Uses the image loaded with `kind load docker-image`
+# (tag `local`) and exposes the app with `kubectl port-forward`.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: portfolio
+resources:
+  - ../../base
+images:
+  - name: ghcr.io/digitalcovet/portfolio-digital-covet
+    newTag: local
+replicas:
+  - name: portfolio
+    count: 1
+patches:
+  - path: configmap-patch.yaml

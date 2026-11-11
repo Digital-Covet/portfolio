@@ -1,0 +1,21 @@
+# Static runtime configuration, shared by the Deployment and the migrate Job.
+# Deployment-specific and sensitive values live in the `portfolio-env` Secret
+# (see scripts/k8s-secret.mjs) and must not appear here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: portfolio-config
+  labels:
+    app.kubernetes.io/name: portfolio
+    app.kubernetes.io/part-of: digital-covet
+data:
+  NODE_ENV: production
+  HOST: 0.0.0.0
+  PORT: '3333'
+  TZ: UTC
+  LOG_LEVEL: info
+  APP_NAME: Portfolio - Digital Covet
+  SESSION_DRIVER: cookie
+  # Placeholder so `node ace` can validate the env before the overlay is
+  # applied. The overlays patch this to the real origin.
+  APP_URL: http://localhost:3333
